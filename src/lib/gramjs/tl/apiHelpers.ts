@@ -11,7 +11,8 @@ import { toSignedLittleBuffer } from '../Helpers';
 // eslint-disable-next-line no-restricted-globals
 const CACHING_SUPPORTED = typeof self !== 'undefined' && self.localStorage !== undefined;
 
-const CACHE_KEY = 'GramJs:apiCache';
+const CACHE_SCHEMA_VERSION = `${tlContent.length}:${schemeContent.length}`;
+const CACHE_KEY = `GramJs:apiCache:${CACHE_SCHEMA_VERSION}`;
 
 type UnsaveVirtualClass = Record<string, any>;
 

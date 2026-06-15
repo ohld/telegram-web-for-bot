@@ -769,8 +769,8 @@ addActionHandler('openGiftModal', async (global, actions, payload): Promise<void
 
 async function loadBotApiGiftModalState<T extends GlobalState>(global: T): Promise<T> {
   const [starsStatus, starGifts] = await Promise.all([
-    callApi('fetchStarsStatus', {}),
-    callApi('fetchStarGifts'),
+    callApi('fetchStarsStatus', {}).catch(() => undefined),
+    callApi('fetchStarGifts').catch(() => undefined),
   ]);
 
   global = getGlobal();
@@ -779,9 +779,7 @@ async function loadBotApiGiftModalState<T extends GlobalState>(global: T): Promi
     global = updateStarsBalance(global, starsStatus.balance);
   }
 
-  if (starGifts) {
-    global = updateStarGifts(global, starGifts.gifts);
-  }
+  global = updateStarGifts(global, starGifts?.gifts || []);
 
   setGlobal(global);
 
@@ -790,8 +788,8 @@ async function loadBotApiGiftModalState<T extends GlobalState>(global: T): Promi
 
 function updateStarGifts<T extends GlobalState>(global: T, gifts: ApiStarGiftRegular[]): T {
   const byId = buildCollectionByKey(gifts, 'id');
-  const allStarGiftIds = Object.keys(byId);
-  const allStarGifts = Object.values(byId);
+  const allStarGifts = Object.values(byId).sort(compareStarGiftsForBotCatalog);
+  const allStarGiftIds = allStarGifts.map((gift) => gift.id);
   const collectibleStarGiftIds = allStarGifts.map((gift) => (
     (gift.availabilityResale || (gift.isLimited && !gift.isSoldOut)) ? gift.id : undefined))
     .filter(Boolean);
@@ -807,6 +805,18 @@ function updateStarGifts<T extends GlobalState>(global: T, gifts: ApiStarGiftReg
       },
     },
   };
+}
+
+function compareStarGiftsForBotCatalog(prevGift: ApiStarGiftRegular, gift: ApiStarGiftRegular) {
+  if (prevGift.isSoldOut && !gift.isSoldOut) {
+    return 1;
+  }
+
+  if (!prevGift.isSoldOut && gift.isSoldOut) {
+    return -1;
+  }
+
+  return prevGift.stars - gift.stars || prevGift.id.localeCompare(gift.id);
 }
 
 addActionHandler('openStarsGiftModal', async (global, actions, payload): Promise<void> => {

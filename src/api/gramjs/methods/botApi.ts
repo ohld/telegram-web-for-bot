@@ -179,14 +179,19 @@ async function invokeBotApiRequest<T>(
     return undefined;
   }
 
-  const response = await invokeRequest(new GramJs.bots.SendCustomRequest({
+  const SendCustomRequest = GramJs.bots.SendCustomRequest;
+  if (!SendCustomRequest) {
+    return { error: method };
+  }
+
+  const response = await invokeRequest(new SendCustomRequest({
     customMethod: method,
     params: new GramJs.DataJSON({
       data: JSON.stringify(params),
     }),
   }), {
     shouldIgnoreErrors: true,
-  });
+  }).catch(() => undefined);
 
   if (!response) {
     return { error: method };
