@@ -676,6 +676,7 @@ const Message = ({
     onContextMenu,
     handleBeforeContextMenu,
     chatId,
+    threadId,
     isContextMenuShown,
     quickReactionRef,
     isInDocumentGroupNotLast,

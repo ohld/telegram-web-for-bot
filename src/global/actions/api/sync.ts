@@ -220,6 +220,7 @@ function buildBotPrivateChats<T extends GlobalState>(global: T, chatIds: string[
       color: user.color,
       profileColor: user.profileColor,
       emojiStatus: user.emojiStatus,
+      isForum: user.isBotForum,
       isBotForum: user.isBotForum,
       botVerificationIconId: user.botVerificationIconId,
       paidMessagesStars: user.paidMessagesStars,

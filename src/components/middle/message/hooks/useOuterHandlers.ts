@@ -3,6 +3,7 @@ import type { ElementRef } from '../../../../lib/teact/teact';
 import { useEffect, useRef } from '../../../../lib/teact/teact';
 import { getActions } from '../../../../global';
 
+import type { ThreadId } from '../../../../types';
 import type { Signal } from '../../../../util/signals';
 
 import { requestMeasure } from '../../../../lib/fasterdom/fasterdom';
@@ -33,6 +34,7 @@ export default function useOuterHandlers(
   onContextMenu: (e: React.MouseEvent) => void,
   handleBeforeContextMenu: (e: React.MouseEvent) => void,
   chatId: string,
+  threadId: ThreadId,
   isContextMenuShown: boolean,
   quickReactionRef: ElementRef<HTMLDivElement>,
   shouldHandleMouseLeave: boolean,
@@ -139,7 +141,7 @@ export default function useOuterHandlers(
     if (IS_TOUCH_ENV || !canReply) return;
 
     updateDraftReplyInfo({
-      replyToMsgId: messageId, replyToPeerId: undefined, quoteText: undefined, quoteOffset: undefined,
+      chatId, threadId, replyToMsgId: messageId, replyToPeerId: undefined, quoteText: undefined, quoteOffset: undefined,
     });
   }
 
@@ -174,14 +176,14 @@ export default function useOuterHandlers(
           return;
         }
 
-        updateDraftReplyInfo({ replyToMsgId: messageId });
+        updateDraftReplyInfo({ chatId, threadId, replyToMsgId: messageId });
 
         setTimeout(unmarkSwiped, Math.max(0, SWIPE_ANIMATION_DURATION - (Date.now() - startedAt)));
         startedAt = undefined;
       },
     });
   }, [
-    containerRef, isInSelectMode, messageId, markSwiped, unmarkSwiped, canReply, isContextMenuShown,
+    containerRef, isInSelectMode, chatId, threadId, messageId, markSwiped, unmarkSwiped, canReply, isContextMenuShown,
     getIsMessageListReady,
   ]);
 

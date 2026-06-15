@@ -1106,13 +1106,15 @@ addActionHandler('clearDraft', (global, actions, payload): ActionReturnType => {
 });
 
 addActionHandler('updateDraftReplyInfo', (global, actions, payload): ActionReturnType => {
-  const { tabId = getCurrentTabId(), ...update } = payload;
+  const {
+    tabId = getCurrentTabId(), chatId: payloadChatId, threadId: payloadThreadId, ...update
+  } = payload;
   const currentMessageList = selectCurrentMessageList(global, tabId);
-  if (!currentMessageList) {
+  const chatId = payloadChatId || currentMessageList?.chatId;
+  const threadId = payloadThreadId || currentMessageList?.threadId;
+  if (!chatId || threadId === undefined) {
     return;
   }
-
-  const { chatId, threadId } = currentMessageList;
 
   const currentDraft = selectDraft(global, chatId, threadId);
 

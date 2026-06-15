@@ -1074,7 +1074,10 @@ export interface ActionPayloads {
   } & WithTabId;
   scrollMessageListToBottom: WithTabId | undefined;
 
-  updateDraftReplyInfo: Partial<ApiInputMessageReplyInfo> & WithTabId;
+  updateDraftReplyInfo: Partial<ApiInputMessageReplyInfo> & {
+    chatId?: string;
+    threadId?: ThreadId;
+  } & WithTabId;
   resetDraftReplyInfo: WithTabId | undefined;
   updateDraftSuggestedPostInfo: Partial<ApiInputSuggestedPostInfo> & WithTabId;
   resetDraftSuggestedPostInfo: WithTabId | undefined;

@@ -450,6 +450,8 @@ const ContextMenuContainer: FC<OwnProps & StateProps> = ({
       });
     } else {
       updateDraftReplyInfo({
+        chatId: message.chatId,
+        threadId,
         replyToMsgId: message.id,
         quoteText,
         quoteOffset: selectionQuoteOffset,
