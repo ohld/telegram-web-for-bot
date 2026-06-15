@@ -2,6 +2,8 @@ FROM node:22-alpine AS build
 
 WORKDIR /app
 
+RUN apk add --no-cache bash git
+
 COPY package.json package-lock.json ./
 RUN npm install --include=dev
 
