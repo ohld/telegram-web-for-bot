@@ -189,7 +189,8 @@
 "LoginNext" = "Next";
 "BotTokenAuthTitle" = "Telegram Bot";
 "BotTokenAuthText" = "Enter your bot token to open chats available to this bot.";
-"BotTokenAuthCredit" = "Was made by {author} from {source}. {website}";
+"BotTokenAuthCredit" = "Was made by {author}. {source} {website}";
+"BotTokenAuthOpenSource" = "Open source";
 "BotTokenPlaceholder" = "Bot token";
 "BotTokenLogin" = "Log in as bot";
 "LoginQRLogin" = "Log in by QR Code";

@@ -157,6 +157,7 @@ export interface LangPair {
   'LoginNext': undefined;
   'BotTokenAuthTitle': undefined;
   'BotTokenAuthText': undefined;
+  'BotTokenAuthOpenSource': undefined;
   'BotTokenPlaceholder': undefined;
   'BotTokenLogin': undefined;
   'LoginQRLogin': undefined;

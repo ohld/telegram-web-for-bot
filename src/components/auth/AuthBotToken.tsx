@@ -28,7 +28,7 @@ const MIN_BOT_TOKEN_LENGTH = 10;
 const BOT_TOKEN_RE = /^\d{5,20}:[A-Za-z0-9_-]{30,}$/;
 const COOLDOWN_REFRESH_MS = 1000;
 const AUTHOR_URL = 'https://t.me/danokhlopkov';
-const SOURCE_URL = 'https://github.com/Ajaxy/telegram-tt';
+const SOURCE_URL = 'https://github.com/ohld/telegram-web-for-bot';
 const WEBSITE_URL = 'https://okhlopkov.com';
 
 const AuthBotToken = ({
@@ -126,6 +126,17 @@ const AuthBotToken = ({
             inputType="password"
             onChange={handleBotTokenChange}
           />
+          <p className="auth-credit">
+            {lang.with({
+              key: 'BotTokenAuthCredit',
+              variables: {
+                author: renderAuthCreditLink(AUTHOR_URL, '@danokhlopkov'),
+                source: renderAuthCreditLink(SOURCE_URL, lang('BotTokenAuthOpenSource')),
+                website: renderAuthCreditLink(WEBSITE_URL, 'okhlopkov.com'),
+              },
+              options: { withNodes: true },
+            })}
+          </p>
           {canSubmit && (
             isAuthReady ? (
               <Button
@@ -141,17 +152,6 @@ const AuthBotToken = ({
             )
           )}
         </form>
-        <p className="auth-credit">
-          {lang.with({
-            key: 'BotTokenAuthCredit',
-            variables: {
-              author: renderAuthCreditLink(AUTHOR_URL, '@danokhlopkov'),
-              source: renderAuthCreditLink(SOURCE_URL, 'Telegram Web A'),
-              website: renderAuthCreditLink(WEBSITE_URL, 'okhlopkov.com'),
-            },
-            options: { withNodes: true },
-          })}
-        </p>
       </div>
     </div>
   );
