@@ -1,12 +1,12 @@
-# Telegram Web A
+# Telegram Web for Bots 
 
-This project won the first prize 🥇 at [Telegram Lightweight Client Contest](https://contest.com/javascript-web-3) and now is an official Telegram client available to anyone at [web.telegram.org/a](https://web.telegram.org/a).
+Manage chats of your Telegram bot from Telegram Web. All you need is a Telegram Bot token from Botfather.
 
-According to the original contest rules, it has nearly zero dependencies and is fully based on its own [Teact](https://github.com/Ajaxy/teact) framework (which re-implements React paradigm). It also uses a custom version of [GramJS](https://github.com/gram-js/gramjs) as an MTProto implementation.
+Made by [@danokhlopkov](https://t.me/danokhlopkov) / [okhlopkov.com](https://okhlopkov.com).
 
-The project incorporates lots of technologically advanced features, modern Web APIs and techniques: WebSockets, Web Workers and WebAssembly, multi-level caching and PWA, voice recording and media streaming, cryptography and raw binary data operations, optimistic and progressive interfaces, complicated CSS/Canvas/SVG animations, reactive data streams, and so much more.
+Based on [Telegram Web A](https://github.com/Ajaxy/telegram-tt). 
 
-Feel free to explore, provide feedback and contribute.
+------
 
 ## Local setup
 
