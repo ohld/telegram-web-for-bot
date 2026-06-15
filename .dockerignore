@@ -1,0 +1,12 @@
+.git
+.github
+.cache
+.env
+.idea
+build-contest
+dist
+node_modules
+tests
+tauri/target
+*.iml
+*.log
