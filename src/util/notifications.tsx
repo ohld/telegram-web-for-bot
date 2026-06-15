@@ -294,7 +294,7 @@ function checkIfShouldNotify(chat: ApiChat, message: Partial<ApiMessage>) {
   const global = getGlobal();
   const isChatMuted = getIsChatMuted(chat, selectNotifyDefaults(global), selectNotifyException(global, chat.id));
   const topic = selectTopicFromMessage(global, message as ApiMessage);
-  const topicMutedUntil = topic?.notifySettings.mutedUntil;
+  const topicMutedUntil = topic?.notifySettings?.mutedUntil;
   const isMuted = topicMutedUntil === undefined ? isChatMuted : topicMutedUntil > getServerTime();
   const shouldNotifyAboutPinnedMessages = global.settings.byKey.shouldNotifyAboutPinnedMessages;
   const shouldIgnoreMute = getShouldIgnoreNotificationMute(message, shouldNotifyAboutPinnedMessages);
@@ -425,7 +425,8 @@ export async function notifyAboutMessage({
     chat, selectNotifyDefaults(getGlobal()), selectNotifyException(getGlobal(), chat.id),
   );
   const topic = selectTopicFromMessage(global, message as ApiMessage);
-  const isSilent = topic?.notifySettings.hasSound === undefined ? isChatSilent : !topic.notifySettings.hasSound;
+  const topicHasSound = topic?.notifySettings?.hasSound;
+  const isSilent = topicHasSound === undefined ? isChatSilent : !topicHasSound;
 
   const areNotificationsSupported = checkIfNotificationsSupported();
   if (!hasWebNotifications || !areNotificationsSupported) {

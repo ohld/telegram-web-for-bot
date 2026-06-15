@@ -48,12 +48,16 @@ export default class CallbackSession extends MemorySession {
   }
 
   setDC(dcId: number, serverAddress: string, port: number, isTestServer?: boolean, skipOnUpdate = false) {
+    const shouldClearAuthKey = Boolean(this._isTestServer) !== Boolean(isTestServer);
+
     this._dcId = dcId;
     this._serverAddress = serverAddress;
     this._port = port;
     this._isTestServer = isTestServer;
 
-    delete this._authKeys[dcId];
+    if (shouldClearAuthKey) {
+      delete this._authKeys[dcId];
+    }
 
     if (!skipOnUpdate) {
       void this._onUpdate();
@@ -64,8 +68,12 @@ export default class CallbackSession extends MemorySession {
     return this._authKeys[dcId];
   }
 
-  setAuthKey(authKey: AuthKey, dcId = this._dcId) {
-    this._authKeys[dcId] = authKey;
+  setAuthKey(authKey: AuthKey | undefined, dcId = this._dcId) {
+    if (authKey) {
+      this._authKeys[dcId] = authKey;
+    } else {
+      delete this._authKeys[dcId];
+    }
 
     void this._onUpdate();
   }

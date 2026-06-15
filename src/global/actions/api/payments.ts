@@ -154,10 +154,42 @@ addActionHandler('openInvoice', async (global, actions, payload): Promise<void> 
   setGlobal(global);
 });
 
-addActionHandler('sendStarGift', (global, actions, payload): ActionReturnType => {
+addActionHandler('sendStarGift', async (global, actions, payload): Promise<void> => {
   const {
     gift, peerId, message, shouldHideName, shouldUpgrade, tabId = getCurrentTabId(),
   } = payload;
+
+  if (await callApi('isBotApiSession')) {
+    const price = gift.stars + (shouldUpgrade ? gift.upgradeStars || 0 : 0);
+    const balance = global.stars?.balance;
+    if (balance && balance.amount < price) {
+      actions.openStarsBalanceModal({ tabId });
+      return;
+    }
+
+    const result = await callApi('sendBotApiGift', {
+      peerId,
+      giftId: gift.id,
+      message,
+      shouldUpgrade,
+    });
+
+    if (!result?.success) {
+      actions.showNotification({
+        message: result?.error || { key: 'GeneralError' },
+        tabId,
+      });
+      return;
+    }
+
+    actions.showNotification({
+      message: { key: 'GiftSent' },
+      tabId,
+    });
+    actions.closeGiftModal({ tabId });
+    actions.loadStarStatus();
+    return;
+  }
 
   const inputInvoice: ApiInputInvoiceStarGift = {
     type: 'stargift',
@@ -186,10 +218,41 @@ addActionHandler('buyStarGift', (global, actions, payload): ActionReturnType => 
   payInputStarInvoice(global, inputInvoice, price.amount, tabId);
 });
 
-addActionHandler('sendPremiumGiftByStars', (global, actions, payload): ActionReturnType => {
+addActionHandler('sendPremiumGiftByStars', async (global, actions, payload): Promise<void> => {
   const {
     userId, months, amount, message, tabId = getCurrentTabId(),
   } = payload;
+
+  if (await callApi('isBotApiSession')) {
+    const balance = global.stars?.balance;
+    if (balance && balance.amount < amount) {
+      actions.openStarsBalanceModal({ tabId });
+      return;
+    }
+
+    const result = await callApi('sendBotApiPremiumGift', {
+      userId,
+      months,
+      amount,
+      message,
+    });
+
+    if (!result?.success) {
+      actions.showNotification({
+        message: result?.error || { key: 'GeneralError' },
+        tabId,
+      });
+      return;
+    }
+
+    actions.showNotification({
+      message: { key: 'GiftSent' },
+      tabId,
+    });
+    actions.closeGiftModal({ tabId });
+    actions.loadStarStatus();
+    return;
+  }
 
   const inputInvoice: ApiInputInvoicePremiumGiftStars = {
     type: 'premiumGiftStars',

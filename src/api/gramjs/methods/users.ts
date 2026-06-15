@@ -22,7 +22,7 @@ import {
 import { addPhotoToLocalDb, addUserToLocalDb } from '../helpers/localDb';
 import localDb from '../localDb';
 import { sendApiUpdate } from '../updates/apiUpdateEmitter';
-import { invokeRequest } from './client';
+import { invokeRequest, isBotApiSession } from './client';
 import { searchMessagesInChat } from './messages';
 
 export async function fetchFullUser({
@@ -127,12 +127,20 @@ export async function fetchPaidMessagesStarsAmount(user: ApiUser) {
 }
 
 export async function fetchNearestCountry() {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const dcInfo = await invokeRequest(new GramJs.help.GetNearestDc());
 
   return dcInfo?.country;
 }
 
 export async function fetchContactList() {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.contacts.GetContacts({ hash: DEFAULT_PRIMITIVES.BIGINT }));
   if (!result || result instanceof GramJs.contacts.ContactsNotModified) {
     return undefined;

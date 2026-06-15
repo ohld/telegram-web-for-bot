@@ -60,13 +60,7 @@ import {
   onAuthError,
   onAuthReady,
   onCurrentUserUpdate,
-  onPasskeyOption,
-  onRequestCode,
-  onRequestPassword,
-  onRequestPhoneNumber,
-  onRequestQrCode,
-  onRequestRegistration,
-  onWebAuthTokenFailed,
+  onRequestBotToken,
 } from './auth';
 import downloadMediaWithClient, { parseMediaUrl } from './media';
 
@@ -74,6 +68,7 @@ import { ChatAbortController } from '../ChatAbortController';
 
 const DEFAULT_USER_AGENT = 'Unknown UserAgent';
 const DEFAULT_PLATFORM = 'Unknown platform';
+const BOT_CONNECTION_RETRIES = 3;
 
 GramJsLogger.setLevel(DEBUG_GRAMJS ? 'debug' : 'warn');
 
@@ -84,6 +79,7 @@ const ABORT_CONTROLLERS = new Map<string, AbortController>();
 
 let client: TelegramClient;
 let currentUserId: string | undefined;
+let isBotAccount = false;
 
 export async function init(initialArgs: ApiInitialArgs, onConnected?: NoneToVoidFunction) {
   if (DEBUG) {
@@ -92,10 +88,8 @@ export async function init(initialArgs: ApiInitialArgs, onConnected?: NoneToVoid
   }
 
   const {
-    userAgent, platform, sessionData, isWebmSupported, maxBufferSize, webAuthToken, dcId,
-    mockScenario, shouldForceHttpTransport, shouldAllowHttpTransport,
-    shouldDebugExportedSenders, langCode, isTestServerRequested, accountIds,
-    hasPasskeySupport,
+    userAgent, platform, sessionData, isWebmSupported, maxBufferSize, dcId,
+    shouldDebugExportedSenders, langCode, isTestServerRequested, botToken,
   } = initialArgs;
 
   const session = new sessions.CallbackSession(sessionData, onSessionUpdate);
@@ -115,8 +109,11 @@ export async function init(initialArgs: ApiInitialArgs, onConnected?: NoneToVoid
       useWSS: true,
       additionalDcsDisabled: IS_TEST,
       shouldDebugExportedSenders,
-      shouldForceHttpTransport,
-      shouldAllowHttpTransport,
+      shouldForceHttpTransport: false,
+      shouldAllowHttpTransport: false,
+      shouldPreconnectMediaSender: false,
+      floodSleepLimit: 0,
+      connectionRetries: BOT_CONNECTION_RETRIES,
       dcId,
       langPack: LANG_PACK,
       langCode,
@@ -124,6 +121,7 @@ export async function init(initialArgs: ApiInitialArgs, onConnected?: NoneToVoid
       isTestServerRequested,
     } as any,
   );
+  client.setBotAuthToken(botToken);
 
   client.addEventHandler(handleGramJsUpdate, gramJsUpdateEventBuilder);
 
@@ -138,25 +136,18 @@ export async function init(initialArgs: ApiInitialArgs, onConnected?: NoneToVoid
 
     try {
       client.setPingCallback(getDifference);
+      isBotAccount = true;
       await client.start({
-        phoneNumber: onRequestPhoneNumber,
-        phoneCode: onRequestCode,
-        password: onRequestPassword,
-        firstAndLastNames: onRequestRegistration,
-        onPasskeyOption,
-        qrCode: onRequestQrCode,
+        botAuthToken: onRequestBotToken,
         onError: onAuthError,
-        initialMethod: platform === 'iOS' || platform === 'Android' ? 'phoneNumber' : 'qrCode',
-        shouldThrowIfUnauthorized: Object.values(sessionData?.keys || {}).length > 0,
-        webAuthToken,
-        webAuthTokenFailed: onWebAuthTokenFailed,
-        mockScenario,
-        accountIds,
-        hasPasskeySupport,
       }, onConnected);
     } catch (err: any) {
       // eslint-disable-next-line no-console
       console.error(err);
+
+      if (isBotImportFloodWaitError(err)) {
+        return;
+      }
 
       if (err.message !== 'Disconnect' && err.message !== 'Cannot send requests while disconnected') {
         sendApiUpdate({
@@ -174,13 +165,13 @@ export async function init(initialArgs: ApiInitialArgs, onConnected?: NoneToVoid
       log('CONNECTED');
     }
 
+    await fetchCurrentUser();
+
     onAuthReady();
     onSessionUpdate(session.getSessionData());
     sendApiUpdate({ '@type': 'updateApiReady' });
 
-    initUpdatesManager(invokeRequest);
-
-    void fetchCurrentUser();
+    void initUpdatesManager(invokeRequest, isBotApiSession());
   } catch (err) {
     if (DEBUG) {
       log('CONNECTING ERROR', err);
@@ -209,6 +200,8 @@ export async function destroy(noLogOut = false, noClearLocalDb = false) {
   }
 
   client.destroy();
+  currentUserId = undefined;
+  isBotAccount = false;
 }
 
 export function disconnect() {
@@ -219,11 +212,19 @@ export function getClient() {
   return client;
 }
 
+export function isBotApiSession() {
+  return isBotAccount;
+}
+
 function onSessionUpdate(sessionData?: ApiSessionData) {
   sendApiUpdate({
     '@type': 'updateSession',
     sessionData,
   });
+}
+
+function isBotImportFloodWaitError(err: unknown) {
+  return err instanceof RPCError && err.errorMessage.startsWith('FLOOD_WAIT');
 }
 
 type UpdateConfig = GramJs.UpdateConfig & { _entities?: (GramJs.TypeUser | GramJs.TypeChat)[] };
@@ -318,28 +319,40 @@ export async function invokeRequest<T extends GramJs.AnyRequest>(
     return shouldReturnTrue ? result && true : result;
   } catch (err: any) {
     if (shouldIgnoreErrors) return undefined;
+    const apiError = buildApiError(err);
+    const { message } = apiError;
+
     if (DEBUG) {
       log('INVOKE ERROR', request.className);
       // eslint-disable-next-line no-console
-      console.debug('invokeRequest failed with payload', request);
+      console.debug('invokeRequest failed with payload', redactSensitiveRequest(request));
       // eslint-disable-next-line no-console
       console.error(err);
     }
 
-    const message = err instanceof RPCError ? err.errorMessage : err.message;
-
-    if (message.includes('FROZEN_METHOD_INVALID')) {
+    if (err instanceof Error && message.includes('FROZEN_METHOD_INVALID')) {
       dispatchNotSupportedInFrozenAccountUpdate(err, request);
     }
 
     if (shouldThrow) {
-      throw err;
+      throw err instanceof Error ? err : new Error(message);
     }
 
     dispatchErrorUpdate(err, request);
 
     return undefined;
   }
+}
+
+function redactSensitiveRequest<T extends GramJs.AnyRequest>(request: T) {
+  if (request instanceof GramJs.auth.ImportBotAuthorization) {
+    return {
+      className: request.className,
+      botAuthToken: '[redacted]',
+    };
+  }
+
+  return request;
 }
 
 export function invokeRequestBeacon<T extends GramJs.AnyRequest>(
@@ -432,6 +445,26 @@ export function abortRequestGroup(group: string) {
 }
 
 export async function fetchCurrentUser() {
+  if (isBotApiSession()) {
+    const users = await invokeRequest(new GramJs.users.GetUsers({
+      id: [new GramJs.InputUserSelf()],
+    }));
+    const user = users?.find((mtpUser) => mtpUser instanceof GramJs.User);
+    if (!user) {
+      return;
+    }
+
+    addUserToLocalDb(user);
+    const currentUser = buildApiUser(user)!;
+
+    setMessageBuilderCurrentUserId(currentUser.id);
+    onCurrentUserUpdate(currentUser, {});
+
+    currentUserId = currentUser.id;
+    setIsPremium({ isPremium: Boolean(currentUser.isPremium) });
+    return;
+  }
+
   const userFull = await invokeRequest(new GramJs.users.GetFullUser({
     id: new GramJs.InputUserSelf(),
   }));
@@ -496,11 +529,19 @@ function dispatchNotSupportedInFrozenAccountUpdate<T extends GramJs.AnyRequest>(
 
 async function handleTerminatedSession() {
   try {
-    await invokeRequest(new GramJs.users.GetFullUser({
-      id: new GramJs.InputUserSelf(),
-    }), {
-      shouldThrow: true,
-    });
+    if (isBotApiSession()) {
+      await invokeRequest(new GramJs.users.GetUsers({
+        id: [new GramJs.InputUserSelf()],
+      }), {
+        shouldThrow: true,
+      });
+    } else {
+      await invokeRequest(new GramJs.users.GetFullUser({
+        id: new GramJs.InputUserSelf(),
+      }), {
+        shouldThrow: true,
+      });
+    }
   } catch (err: any) {
     if (
       err.errorMessage === 'AUTH_KEY_UNREGISTERED'

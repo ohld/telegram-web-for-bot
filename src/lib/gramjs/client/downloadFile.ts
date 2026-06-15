@@ -121,6 +121,7 @@ export async function downloadFile(
     } catch (err: unknown) {
       if (err instanceof RPCError && (
         err.errorMessage.startsWith('SESSION_REVOKED')
+        || err.errorMessage.startsWith('AUTH_KEY_UNREGISTERED')
         || err.errorMessage.startsWith('CONNECTION_NOT_INITED')
       ) && i < SENDER_RETRIES - 1) {
         await client._cleanupExportedSenders(dcId);

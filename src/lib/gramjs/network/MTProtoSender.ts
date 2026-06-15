@@ -303,7 +303,11 @@ export default class MTProtoSender {
     this._connection = connection;
     this._fallbackConnection = fallbackConnection;
 
-    for (let attempt = 0; attempt < this._retries + this._retriesToFallback; attempt++) {
+    const attemptCount = this._retries + (this._shouldAllowHttpTransport ? this._retriesToFallback : 0);
+    let hasConnected = false;
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < attemptCount; attempt++) {
       try {
         if (attempt >= this._retriesToFallback && this._shouldAllowHttpTransport) {
           this._isFallback = true;
@@ -316,18 +320,26 @@ export default class MTProtoSender {
         if (!this._isExported) {
           this._updateCallback?.(new UpdateConnectionState(UpdateConnectionState.connected));
         }
+        hasConnected = true;
         break;
       } catch (err) {
+        lastError = err;
         if (!this._isExported && attempt === 0) {
           this._updateCallback?.(new UpdateConnectionState(UpdateConnectionState.disconnected));
         }
         this._log.error(`${this._isFallback ? 'HTTP' : 'WebSocket'} connection failed attempt: ${attempt + 1}`);
         // eslint-disable-next-line no-console
         console.error(err);
-        await sleep(this._delay);
+        if (attempt + 1 < attemptCount) {
+          await sleep(this._delay);
+        }
       }
     }
     this.isConnecting = false;
+
+    if (!hasConnected) {
+      throw lastError instanceof Error ? lastError : new Error('Connection failed');
+    }
 
     if (this._isFallback && !this._shouldForceHttpTransport) {
       void this.tryReconnectToMain();
@@ -491,19 +503,25 @@ export default class MTProtoSender {
 
     if (!this._sendLoopHandle) {
       this._log.debug('Starting send loop');
-      this._sendLoopHandle = this._sendLoop();
+      this._sendLoopHandle = this._sendLoop().catch((err: unknown) => {
+        this.handleLoopError('send', err);
+      });
     } else if (wasReconnecting) {
       this.retryPendingStates();
     }
 
     if (!this._recvLoopHandle) {
       this._log.debug('Starting receive loop');
-      this._recvLoopHandle = this._recvLoop();
+      this._recvLoopHandle = this._recvLoop().catch((err: unknown) => {
+        this.handleLoopError('receive', err);
+      });
     }
 
     if (!this._longPollLoopHandle && connection.shouldLongPoll) {
       this._log.debug('Starting long-poll loop');
-      this._longPollLoopHandle = this._longPollLoop();
+      this._longPollLoopHandle = this._longPollLoop().catch((err: unknown) => {
+        this.handleLoopError('long-poll', err);
+      });
     }
 
     // _disconnected only completes after manual disconnection
@@ -549,7 +567,17 @@ export default class MTProtoSender {
       const { batch } = res;
       this._log.debug(`Encrypting ${batch.length} message(s) in ${data.length} bytes for sending`);
 
-      data = await this._state.encryptMessageData(data);
+      try {
+        data = await this._state.encryptMessageData(data);
+      } catch (e: unknown) {
+        this._log.warn(`Failed to encrypt long-poll data: ${String(e)}`);
+        this._longPollLoopHandle = undefined;
+        this.isSendingLongPoll = false;
+        if (!this.userDisconnected) {
+          this.reconnect();
+        }
+        return;
+      }
 
       try {
         await this._fallbackConnection?.send(data);
@@ -651,7 +679,16 @@ export default class MTProtoSender {
       this.logWithIndex.debug('Sending', batch.map((m) => m.request.className));
       const connection = this.getConnection();
 
-      data = await this._state.encryptMessageData(data);
+      try {
+        data = await this._state.encryptMessageData(data);
+      } catch (e: unknown) {
+        this._log.warn(`Failed to encrypt data: ${String(e)}`);
+        this._sendLoopHandle = undefined;
+        if (!this.userDisconnected) {
+          this.reconnect();
+        }
+        return;
+      }
 
       if (this.isReconnecting) {
         this.logWithIndex.debug('Reconnecting :(');
@@ -1218,5 +1255,22 @@ export default class MTProtoSender {
 
     this._sendQueue.prepend(pendingStates);
     this._pendingState.clear();
+  }
+
+  private handleLoopError(loopName: 'send' | 'receive' | 'long-poll', err: unknown) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    this._log.warn(`${loopName} loop failed: ${error.message}`);
+
+    if (loopName === 'send') {
+      this._sendLoopHandle = undefined;
+    } else if (loopName === 'receive') {
+      this._recvLoopHandle = undefined;
+    } else {
+      this._longPollLoopHandle = undefined;
+    }
+
+    if (!this.userDisconnected) {
+      this.reconnect();
+    }
   }
 }

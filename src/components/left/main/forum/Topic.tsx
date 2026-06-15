@@ -122,9 +122,10 @@ const Topic = ({
   const [shouldRenderMuteModal, markRenderMuteModal, unmarkRenderMuteModal] = useFlag();
 
   const {
-    isPinned, isClosed, notifySettings,
+    isPinned, isClosed,
   } = topic;
-  const isMuted = Boolean(notifySettings.mutedUntil || (notifySettings.mutedUntil === undefined && isChatMuted));
+  const mutedUntil = topic.notifySettings?.mutedUntil;
+  const isMuted = Boolean(mutedUntil || (mutedUntil === undefined && isChatMuted));
 
   const handleOpenDeleteModal = useLastCallback(() => {
     markRenderDeleteModal();
@@ -212,7 +213,7 @@ const Topic = ({
             <TopicIcon topic={topic} className={styles.topicIcon} observeIntersection={observeIntersection} />
             <h3 dir="auto" className="fullName">{renderText(topic.title)}</h3>
           </div>
-          {Boolean(notifySettings.mutedUntil) && <Icon name="muted" />}
+          {Boolean(mutedUntil) && <Icon name="muted" />}
           <div className="separator" />
           {isClosed && (
             <Icon name="lock-badge" className={styles.closedIcon} />

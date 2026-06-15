@@ -39,6 +39,7 @@ const ERROR_KEYS: Record<string, RegularLangKey> = {
   PASSWORD_MISSING: 'ErrorPasswordMissing',
   PASSKEY_CREDENTIAL_NOT_FOUND: 'ErrorPasskeyUnknown',
 };
+const UNEXPECTED_ERROR_MESSAGE = 'Unexpected error';
 
 function resolveErrorKey(errorMessage: string) {
   return ERROR_KEYS[errorMessage] || ERROR_KEYS[errorMessage.replace(/_\d+$/, '')];
@@ -107,7 +108,7 @@ export function checkErrorType(error: unknown): error is Error {
   return true;
 }
 
-export function buildApiError(error: Error): Pick<ApiError, 'message' | 'code' | 'hasErrorKey'> {
+export function buildApiError(error: unknown): Pick<ApiError, 'message' | 'code' | 'hasErrorKey'> {
   if (error instanceof errors.RPCError) {
     return {
       message: error.errorMessage,
@@ -116,8 +117,14 @@ export function buildApiError(error: Error): Pick<ApiError, 'message' | 'code' |
     };
   }
 
+  if (error instanceof Error) {
+    return {
+      message: error.message || UNEXPECTED_ERROR_MESSAGE,
+    };
+  }
+
   return {
-    message: error.message,
+    message: typeof error === 'string' && error ? error : UNEXPECTED_ERROR_MESSAGE,
   };
 }
 

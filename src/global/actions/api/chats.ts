@@ -23,6 +23,7 @@ import {
   ARCHIVED_FOLDER_ID,
   CHAT_LIST_LOAD_SLICE,
   DEBUG,
+  GENERAL_TOPIC_ID,
   GLOBAL_SUGGESTED_CHANNELS_ID,
   RE_TG_LINK,
   SAVED_FOLDER_ID,
@@ -54,6 +55,7 @@ import {
   isChatChannel,
   isChatMonoforum,
   isChatSuperGroup,
+  isCurrentUserBot,
   isUserBot,
 } from '../../helpers';
 import {
@@ -140,6 +142,7 @@ import { selectCurrentLimit } from '../../selectors/limits';
 import {
   selectDraft,
   selectThread,
+  selectThreadIdFromMessage,
   selectThreadInfo,
   selectThreadLocalState,
   selectThreadReadState,
@@ -147,6 +150,7 @@ import {
 
 const TOP_CHAT_MESSAGES_PRELOAD_INTERVAL = 100;
 const INFINITE_LOOP_MARKER = 100;
+const BOT_TOPIC_FALLBACK_ICON_COLOR = 0;
 
 const CHATLIST_LIMIT_ERROR_LIST = new Set([
   'FILTERS_TOO_MUCH',
@@ -156,6 +160,74 @@ const CHATLIST_LIMIT_ERROR_LIST = new Set([
 
 const runThrottledForLoadTopChats = throttle((cb) => cb(), 3000, true);
 const runDebouncedForLoadFullChat = debounce((cb) => cb(), 500, false, true);
+
+function updateBotLocalTopics<T extends GlobalState>(
+  global: T, chatId: string, onlyTopicId?: number,
+): T {
+  const chat = selectChat(global, chatId);
+  if (!chat?.isForum) return global;
+
+  const messagesById = selectChatMessages(global, chatId);
+  const knownTopics = selectTopics(global, chatId) || {};
+  const topicIds = new Set(Object.keys(knownTopics).map(Number));
+  const lastMessageIdByTopicId: Record<number, number> = {};
+
+  Object.values(messagesById || {}).forEach((message) => {
+    const threadId = Number(selectThreadIdFromMessage(global, message));
+    if (!threadId || threadId === MAIN_THREAD_ID || threadId === GENERAL_TOPIC_ID) {
+      return;
+    }
+
+    if (onlyTopicId && threadId !== onlyTopicId && message.id !== onlyTopicId) {
+      return;
+    }
+
+    const topic = selectTopic(global, chatId, threadId);
+    const action = message.content.action;
+    const isTopicCreate = action?.type === 'topicCreate' && message.id === threadId;
+    const isTopicEdit = action?.type === 'topicEdit';
+
+    topicIds.add(threadId);
+    lastMessageIdByTopicId[threadId] = Math.max(lastMessageIdByTopicId[threadId] || 0, message.id);
+
+    global = updateTopic(global, chatId, threadId, {
+      id: threadId,
+      title: isTopicCreate ? action.title : topic?.title || `#${threadId}`,
+      iconColor: isTopicCreate ? action.iconColor : topic?.iconColor ?? BOT_TOPIC_FALLBACK_ICON_COLOR,
+      iconEmojiId: isTopicCreate ? action.iconEmojiId : isTopicEdit && action.iconEmojiId !== undefined
+        ? action.iconEmojiId
+        : topic?.iconEmojiId,
+      date: topic?.date || message.date,
+      fromId: topic?.fromId || message.senderId || chatId,
+      notifySettings: topic?.notifySettings || {},
+      isClosed: isTopicEdit && action.isClosed !== undefined ? action.isClosed : topic?.isClosed,
+      isHidden: isTopicEdit && action.isHidden !== undefined ? action.isHidden : topic?.isHidden,
+      isPinned: topic?.isPinned,
+      isOwner: topic?.isOwner,
+      isTitleMissing: topic?.isTitleMissing,
+    });
+  });
+
+  topicIds.forEach((topicId) => {
+    const threadInfo = selectThreadInfo(global, chatId, topicId);
+    lastMessageIdByTopicId[topicId] = Math.max(
+      lastMessageIdByTopicId[topicId] || 0,
+      threadInfo?.lastMessageId || 0,
+    );
+  });
+
+  const listedTopicIds = Array.from(topicIds)
+    .filter((topicId) => topicId !== MAIN_THREAD_ID && topicId !== GENERAL_TOPIC_ID)
+    .sort((firstId, secondId) => (
+      (lastMessageIdByTopicId[secondId] || 0) - (lastMessageIdByTopicId[firstId] || 0)
+    ));
+
+  return updateTopicsInfo(global, chatId, {
+    listedTopicIds,
+    totalCount: listedTopicIds.length,
+    isCache: undefined,
+  });
+}
 
 addActionHandler('preloadTopChatMessages', async (global, actions): Promise<void> => {
   const preloadedChatIds = new Set<string>();
@@ -1500,6 +1572,10 @@ addActionHandler('markChatMessagesRead', async (global, actions, payload): Promi
     return;
   }
 
+  if (isCurrentUserBot(global)) {
+    return;
+  }
+
   let hasMoreTopics = true;
   let lastTopic: ApiTopic | undefined;
   let processedCount = 0;
@@ -2627,6 +2703,12 @@ addActionHandler('loadTopics', async (global, actions, payload): Promise<void> =
   const chat = selectChat(global, chatId);
   if (!chat) return;
 
+  if (isCurrentUserBot(global)) {
+    global = updateBotLocalTopics(global, chatId);
+    setGlobal(global);
+    return;
+  }
+
   const topicsInfo = selectTopicsInfo(global, chatId);
   const shouldRefreshFromStart = force || topicsInfo?.isCache;
 
@@ -2690,6 +2772,12 @@ addActionHandler('loadTopicById', async (global, actions, payload): Promise<void
 
   const chat = selectChat(global, chatId);
   if (!chat) return;
+
+  if (isCurrentUserBot(global)) {
+    global = updateBotLocalTopics(global, chatId, topicId);
+    setGlobal(global);
+    return;
+  }
 
   const result = await callApi('fetchTopicById', { chat, topicId });
 

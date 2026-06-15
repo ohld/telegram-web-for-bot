@@ -18,7 +18,7 @@ import { getAccountsInfo, getAccountSlotUrl } from '../../../util/multiaccount';
 import { oldSetLanguage } from '../../../util/oldLangProvider';
 import { clearWebTokenAuth } from '../../../util/routing';
 import { setServerTimeOffset } from '../../../util/serverTime';
-import { updateSessionUserId } from '../../../util/sessions';
+import { parseFloodWaitSeconds, storeBotAuthFloodWait, updateSessionUserId } from '../../../util/sessions';
 import { forceWebsync } from '../../../util/websync';
 import {
   addActionHandler, getActions, getGlobal, setGlobal,
@@ -34,6 +34,8 @@ import { updateTabState } from '../../reducers/tabs';
 import { selectTabState } from '../../selectors';
 import { selectSharedSettings } from '../../selectors/sharedState';
 
+let lastSessionData: ApiUpdateSession['sessionData'];
+
 addActionHandler('apiUpdate', (global, actions, update): ActionReturnType => {
   switch (update['@type']) {
     case 'updateApiReady':
@@ -41,7 +43,7 @@ addActionHandler('apiUpdate', (global, actions, update): ActionReturnType => {
       break;
 
     case 'updateAuthorizationState':
-      onUpdateAuthorizationState(global, update);
+      onUpdateAuthorizationState(global, actions, update);
       break;
 
     case 'updateAuthorizationError':
@@ -73,7 +75,7 @@ addActionHandler('apiUpdate', (global, actions, update): ActionReturnType => {
       break;
 
     case 'updateCurrentUser':
-      onUpdateCurrentUser(global, update);
+      onUpdateCurrentUser(global, actions, update);
       break;
 
     case 'requestReconnectApi':
@@ -132,7 +134,9 @@ function onUpdateApiReady<T extends GlobalState>(global: T) {
   void oldSetLanguage(selectSharedSettings(global).language as LangCode);
 }
 
-function onUpdateAuthorizationState<T extends GlobalState>(global: T, update: ApiUpdateAuthorizationState) {
+function onUpdateAuthorizationState<T extends GlobalState>(
+  global: T, actions: RequiredGlobalActions, update: ApiUpdateAuthorizationState,
+) {
   const wasAuthReady = global.auth.state === 'authorizationStateReady';
   const authState = update.authorizationState;
 
@@ -140,6 +144,9 @@ function onUpdateAuthorizationState<T extends GlobalState>(global: T, update: Ap
     state: authState,
     isLoading: false,
   });
+  if (authState === 'authorizationStateReady' && global.auth.rememberMe && lastSessionData?.mainDcId) {
+    actions.saveSession({ sessionData: lastSessionData });
+  }
   setGlobal(global);
   global = getGlobal();
 
@@ -201,6 +208,11 @@ function onUpdateAuthorizationState<T extends GlobalState>(global: T, update: Ap
 }
 
 function onUpdateAuthorizationError<T extends GlobalState>(global: T, update: ApiUpdateAuthorizationError) {
+  const floodWaitSeconds = parseFloodWaitSeconds(update.errorCode);
+  if (global.auth.state === 'authorizationStateWaitBotToken' && floodWaitSeconds) {
+    storeBotAuthFloodWait(floodWaitSeconds);
+  }
+
   if (update.errorCode === 'PASSKEY_CREDENTIAL_NOT_FOUND') {
     getActions().showNotification({
       message: update.errorKey,
@@ -211,6 +223,8 @@ function onUpdateAuthorizationError<T extends GlobalState>(global: T, update: Ap
 
   global = updateAuth(global, {
     errorKey: update.errorKey,
+    isLoading: false,
+    isLoadingQrCode: false,
   });
   setGlobal(global);
 }
@@ -283,6 +297,7 @@ function onUpdateSession<T extends GlobalState>(global: T, actions: RequiredGlob
   const { sessionData } = update;
   const { rememberMe, state } = global.auth;
   const isEmpty = !sessionData || !sessionData.mainDcId;
+  lastSessionData = isEmpty ? undefined : sessionData;
 
   const isTest = sessionData?.isTest;
   if (isTest) {
@@ -307,7 +322,9 @@ function onUpdateServerTimeOffset(update: ApiUpdateServerTimeOffset) {
   setServerTimeOffset(update.serverTimeOffset);
 }
 
-function onUpdateCurrentUser<T extends GlobalState>(global: T, update: ApiUpdateCurrentUser) {
+function onUpdateCurrentUser<T extends GlobalState>(
+  global: T, actions: RequiredGlobalActions, update: ApiUpdateCurrentUser,
+) {
   const { currentUser, currentUserFullInfo } = update;
 
   global = {
@@ -318,4 +335,5 @@ function onUpdateCurrentUser<T extends GlobalState>(global: T, update: ApiUpdate
   setGlobal(global);
 
   updateSessionUserId(currentUser.id);
+  actions.markBotSession();
 }

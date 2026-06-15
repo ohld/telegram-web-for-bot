@@ -19,7 +19,7 @@ import { requestPermission, subscribe, unsubscribe } from '../../../util/notific
 import requestActionTimeout from '../../../util/requestActionTimeout';
 import { getServerTime } from '../../../util/serverTime';
 import { callApi } from '../../../api/gramjs';
-import { buildApiInputPrivacyRules } from '../../helpers';
+import { buildApiInputPrivacyRules, isUserBot } from '../../helpers';
 import { addActionHandler, getGlobal, getPromiseActions, setGlobal } from '../../index';
 import {
   addBlockedUser, addNotifyExceptions, deletePeerPhoto,
@@ -413,6 +413,9 @@ addActionHandler('loadPrivacySettings', async (global, actions, payload): Promis
     return;
   }
 
+  const currentUser = global.currentUserId ? selectUser(global, global.currentUserId) : undefined;
+  if (currentUser && isUserBot(currentUser)) return;
+
   if (selectIsCurrentUserFrozen(global)) return;
 
   const result = await Promise.all([
@@ -481,6 +484,8 @@ addActionHandler('loadPrivacySettings', async (global, actions, payload): Promis
 
 addActionHandler('setPrivacyVisibility', async (global, actions, payload): Promise<void> => {
   const { privacyKey, visibility, onSuccess } = payload;
+  const currentUser = global.currentUserId ? selectUser(global, global.currentUserId) : undefined;
+  if (currentUser && isUserBot(currentUser)) return;
 
   if (!global.settings.privacy[privacyKey]) {
     const result = await callApi('fetchPrivacySettings', privacyKey);
@@ -542,6 +547,9 @@ addActionHandler('setPrivacySettings', async (global, actions, payload): Promise
   const {
     privacyKey, isAllowList, updatedIds, isPremiumAllowed, botsPrivacy,
   } = payload;
+  const currentUser = global.currentUserId ? selectUser(global, global.currentUserId) : undefined;
+  if (currentUser && isUserBot(currentUser)) return;
+
   const {
     privacy: { [privacyKey]: settings },
   } = global.settings;
@@ -762,6 +770,9 @@ addActionHandler('loadTimezones', async (global): Promise<void> => {
 });
 
 addActionHandler('loadGlobalPrivacySettings', async (global): Promise<void> => {
+  const currentUser = global.currentUserId ? selectUser(global, global.currentUserId) : undefined;
+  if (currentUser && isUserBot(currentUser)) return;
+
   const globalSettings = await callApi('fetchGlobalPrivacySettings');
   if (!globalSettings) {
     return;
@@ -773,6 +784,9 @@ addActionHandler('loadGlobalPrivacySettings', async (global): Promise<void> => {
 });
 
 addActionHandler('updateGlobalPrivacySettings', async (global, actions, payload): Promise<void> => {
+  const currentUser = global.currentUserId ? selectUser(global, global.currentUserId) : undefined;
+  if (currentUser && isUserBot(currentUser)) return;
+
   const shouldArchiveAndMuteNewNonContact = payload.shouldArchiveAndMuteNewNonContact
     ?? Boolean(global.settings.byKey.shouldArchiveAndMuteNewNonContact);
   const shouldHideReadMarks = payload.shouldHideReadMarks ?? Boolean(global.settings.byKey.shouldHideReadMarks);

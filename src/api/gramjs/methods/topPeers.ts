@@ -10,7 +10,7 @@ import type {
 import { getApiChatIdFromMtpPeer } from '../apiBuilders/peers';
 import { buildInputPeer, DEFAULT_PRIMITIVES } from '../gramjsBuilders';
 import { addChatToLocalDb, addUserToLocalDb } from '../helpers/localDb';
-import { invokeRequest } from './client';
+import { invokeRequest, isBotApiSession } from './client';
 
 const TOP_PEER_LIMIT = 50;
 
@@ -19,6 +19,10 @@ export async function fetchTopPeers({
 }: {
   category: ApiTopPeerCategory;
 }): Promise<ApiTopPeersResult | undefined> {
+  if (isBotApiSession()) {
+    return { type: 'disabled' };
+  }
+
   const result = await invokeRequest(new GramJs.contacts.GetTopPeers({
     correspondents: category === 'correspondents' || undefined,
     botsInline: category === 'botsInline' || undefined,

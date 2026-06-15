@@ -18,7 +18,7 @@ export default class HttpStream {
 
   private resolveRead: VoidFunction | undefined;
 
-  private rejectRead: VoidFunction | undefined;
+  private rejectRead: ((err: Error) => void) | undefined;
 
   private disconnectedCallback: VoidFunction | undefined;
 
@@ -43,7 +43,15 @@ export default class HttpStream {
   async read() {
     await this.canRead;
 
-    const data = this.stream.shift()!;
+    if (this.isClosed) {
+      throw closeError;
+    }
+
+    const data = this.stream.shift();
+    if (!data) {
+      throw closeError;
+    }
+
     if (this.stream.length === 0) {
       this.canRead = new Promise((resolve, reject) => {
         this.resolveRead = resolve;
@@ -70,12 +78,15 @@ export default class HttpStream {
     });
     this.url = HttpStream.getURL(ip, port, isTestServer, isPremium);
 
-    await fetch(this.url, {
+    const response = await fetch(this.url, {
       method: 'POST',
       body: Buffer.from([]),
       mode: 'cors',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT),
     });
+    if (response.status !== 200) {
+      throw closeError;
+    }
 
     this.isClosed = false;
   }
@@ -111,8 +122,9 @@ export default class HttpStream {
   }
 
   handleDisconnect() {
+    this.isClosed = true;
     this.disconnectedCallback?.();
-    if (this.rejectRead) this.rejectRead();
+    if (this.rejectRead) this.rejectRead(closeError);
   }
 
   close() {

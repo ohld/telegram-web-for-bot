@@ -30,6 +30,7 @@ import {
   getMessageText,
   groupMessageIdsByThreadId,
   isActionMessage,
+  isCurrentUserBot,
   isDeletedUser,
   isMessageLocal,
   isUserBot,
@@ -42,6 +43,7 @@ import {
   setGlobal,
 } from '../../index';
 import {
+  addChatListIds,
   addMessages,
   addViewportId,
   clearMessageSummary,
@@ -240,6 +242,9 @@ addActionHandler('apiUpdate', (global, actions, update): ActionReturnType => {
 
       global = updateWithLocalMedia(global, chatId, id, true, nextMessage);
       global = updateListedAndViewportIds(global, nextMessage);
+      if (!selectIsChatListed(global, chatId)) {
+        global = addChatListIds(global, 'active', [chatId]);
+      }
 
       if (hasTypingDraftsInThread && matchedTypingDraftEntry) {
         global = removeTypingDraftEntries(global, chatId, threadId, [matchedTypingDraftEntry]);
@@ -252,7 +257,11 @@ addActionHandler('apiUpdate', (global, actions, update): ActionReturnType => {
         && replyInfo?.isForumTopic
         && !selectTopicFromMessage(global, newMessage)
         && replyInfo.replyToMsgId) {
-        actions.loadTopicById({ chatId, topicId: replyInfo.replyToMsgId });
+        if (isCurrentUserBot(global)) {
+          actions.loadTopics({ chatId, force: true });
+        } else {
+          actions.loadTopicById({ chatId, topicId: replyInfo.replyToMsgId });
+        }
       }
 
       Object.values(global.byTabId).forEach(({ id: tabId }) => {
@@ -265,9 +274,13 @@ addActionHandler('apiUpdate', (global, actions, update): ActionReturnType => {
         global = updateChatMediaLoadingState(global, newMessage, chatId, messageThreadId, tabId);
 
         if (selectIsMessageInCurrentMessageList(global, chatId, message, tabId)) {
+          const currentMessageList = selectCurrentMessageList(global, tabId);
+          if (selectIsBotSession(global) && currentMessageList?.type === 'thread') {
+            global = addViewportId(global, chatId, currentMessageList.threadId, id, tabId);
+          }
+
           if (isLocal && message.isOutgoing && !(message.content?.action) && !storyReplyInfo?.storyId
             && !message.content?.storyData) {
-            const currentMessageList = selectCurrentMessageList(global, tabId);
             if (currentMessageList) {
               // We do not use `actions.focusLastMessage` as it may be set with a delay (see below)
               actions.focusMessage({
@@ -551,11 +564,18 @@ addActionHandler('apiUpdate', (global, actions, update): ActionReturnType => {
             webPage: update.webPage,
             shouldForceReply,
           });
+          return;
         }
 
         // If update contains the full message, store it
         if (update.isFull) {
           global = addMessages(global, [update.message]);
+          if (selectIsBotSession(global)) {
+            global = updateListedAndViewportIds(global, update.message);
+            if (!selectIsChatListed(global, chatId)) {
+              global = addChatListIds(global, 'active', [chatId]);
+            }
+          }
         }
         setGlobal(global);
         return;
@@ -567,6 +587,13 @@ addActionHandler('apiUpdate', (global, actions, update): ActionReturnType => {
       }
 
       global = updateWithLocalMedia(global, chatId, id, false, message);
+      if (isFromNew && isFull && selectIsBotSession(global)) {
+        global = updateListedAndViewportIds(global, message);
+        if (!selectIsChatListed(global, chatId)) {
+          global = addChatListIds(global, 'active', [chatId]);
+        }
+        global = updateChatLastMessage(global, chatId, message);
+      }
 
       setGlobal(global);
 
@@ -1292,6 +1319,10 @@ function updateReactions<T extends GlobalState>(
   return global;
 }
 
+function selectIsBotSession<T extends GlobalState>(global: T) {
+  return isCurrentUserBot(global);
+}
+
 export function updateWithLocalMedia(
   global: RequiredGlobalState,
   chatId: string,
@@ -1526,7 +1557,11 @@ export function deleteMessages<T extends GlobalState>(
     threadIdsToUpdate.forEach((threadId) => {
       if (chat.isForum && threadId !== MAIN_THREAD_ID) {
         // Refresh unread count
-        actions.loadTopicById({ chatId, topicId: Number(threadId) });
+        if (isCurrentUserBot(global)) {
+          actions.loadTopics({ chatId, force: true });
+        } else {
+          actions.loadTopicById({ chatId, topicId: Number(threadId) });
+        }
       }
 
       const threadInfo = selectThreadInfo(global, chatId, threadId);

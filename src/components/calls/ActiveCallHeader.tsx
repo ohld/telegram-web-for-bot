@@ -3,6 +3,7 @@ import { getActions, withGlobal } from '../../global';
 
 import type { ApiGroupCall, ApiUser } from '../../api/types';
 
+import { requestMutation } from '../../lib/fasterdom/fasterdom';
 import { selectTabState } from '../../global/selectors';
 import { selectActiveGroupCall, selectPhoneCallUser } from '../../global/selectors/calls';
 import buildClassName from '../../util/buildClassName';
@@ -27,11 +28,15 @@ const ActiveCallHeader = ({
   const lang = useOldLang();
 
   useEffect(() => {
-    document.body.classList.toggle('has-call-header', Boolean(isCallPanelVisible));
+    requestMutation(() => {
+      document.body.classList.toggle('has-call-header', Boolean(isCallPanelVisible));
+    });
     window.tauri?.markTitleBarOverlay(!isCallPanelVisible);
 
     return () => {
-      document.body.classList.toggle('has-call-header', false);
+      requestMutation(() => {
+        document.body.classList.toggle('has-call-header', false);
+      });
       window.tauri?.markTitleBarOverlay(true);
     };
   }, [isCallPanelVisible]);

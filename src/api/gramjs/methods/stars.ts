@@ -43,7 +43,8 @@ import {
   buildInputUser,
   DEFAULT_PRIMITIVES } from '../gramjsBuilders';
 import { checkErrorType, wrapError } from '../helpers/misc';
-import { invokeRequest } from './client';
+import { fetchBotApiStarBalance } from './botApi';
+import { invokeRequest, isBotApiSession } from './client';
 import { getPassword } from './twoFaSettings';
 
 export async function fetchCheckCanSendGift({ giftId }: { giftId: string }) {
@@ -232,6 +233,10 @@ export async function fetchStarsStatus({
 }: {
   isTon?: boolean;
 } = {}) {
+  if (isBotApiSession()) {
+    return !isTon ? fetchBotApiStarBalance() : undefined;
+  }
+
   const result = await invokeRequest(new GramJs.payments.GetStarsStatus({
     peer: new GramJs.InputPeerSelf(),
     ton: isTon || undefined,
@@ -270,6 +275,10 @@ export async function fetchStarsTransactions({
   isOutbound?: boolean;
   isTon?: boolean;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const inputPeer = peer ? buildInputPeer(peer.id, peer.accessHash) : new GramJs.InputPeerSelf();
   const result = await invokeRequest(new GramJs.payments.GetStarsTransactions({
     peer: inputPeer,
@@ -328,6 +337,10 @@ export async function fetchStarsSubscriptions({
   offset?: string; limit?: number;
   peer?: ApiPeer;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const inputPeer = peer ? buildInputPeer(peer.id, peer.accessHash) : new GramJs.InputPeerSelf();
   const result = await invokeRequest(new GramJs.payments.GetStarsSubscriptions({
     peer: inputPeer,
@@ -381,6 +394,10 @@ export async function fulfillStarsSubscription({
 }
 
 export async function fetchStarsTopupOptions() {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.payments.GetStarsTopupOptions());
 
   if (!result) {
@@ -604,6 +621,10 @@ export async function fetchStarGiftCollections({
   peer: ApiPeer;
   hash?: string;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.payments.GetStarGiftCollections({
     peer: buildInputPeer(peer.id, peer.accessHash),
     hash: hash ? BigInt(hash) : DEFAULT_PRIMITIVES.BIGINT,

@@ -18,7 +18,7 @@ import {
 } from '../gramjsBuilders';
 import localDb from '../localDb';
 import { sendApiUpdate } from '../updates/apiUpdateEmitter';
-import { invokeRequest } from './client';
+import { invokeRequest, isBotApiSession } from './client';
 
 export async function fetchCustomEmojiSets({ hash }: { hash?: string }) {
   const allStickers = await invokeRequest(new GramJs.messages.GetEmojiStickers({
@@ -380,6 +380,10 @@ export async function searchStickers({ query, hash }: { query: string; hash?: st
 }
 
 export async function fetchSavedGifs({ hash }: { hash?: string }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetSavedGifs({
     hash: hash ? BigInt(hash) : DEFAULT_PRIMITIVES.BIGINT,
   }));

@@ -133,8 +133,10 @@ export interface ActionPayloads {
   saveSession: {
     sessionData?: ApiSessionData;
   };
+  markBotSession: undefined;
 
   // auth
+  setAuthBotToken: { botToken: string };
   setAuthPhoneNumber: { phoneNumber: string };
   setAuthCode: { code: string };
   setAuthPassword: { password: string };

@@ -1,3 +1,4 @@
+import type { RegularLangFnParameters } from '../../../util/localization';
 import type { ActionReturnType } from '../../types';
 import { ManagementProgress } from '../../../types';
 
@@ -17,6 +18,9 @@ import {
   IS_WEBM_SUPPORTED, MAX_BUFFER_SIZE, PLATFORM_ENV,
 } from '../../../util/browser/windowEnvironment';
 import * as cacheApi from '../../../util/cacheApi';
+import {
+  DAY, getDays, getHours, getMinutes, HOUR, MINUTE,
+} from '../../../util/dates/units';
 import { getCurrentTabId } from '../../../util/establishMultitabRole';
 import { ACCOUNT_SLOT, getAccountsInfo } from '../../../util/multiaccount';
 import { unsubscribe } from '../../../util/notifications';
@@ -24,9 +28,15 @@ import { clearEncryptedSession, encryptSession, forgetPasscode } from '../../../
 import { parseInitialLocationHash, resetInitialLocationHash, resetLocationHash } from '../../../util/routing';
 import { pause } from '../../../util/schedulers';
 import {
+  clearBotAuthFloodWait,
   clearStoredSession,
+  getBotAuthFloodWaitSeconds,
+  loadStoredBotSession,
+  loadStoredBotToken,
   loadStoredSession,
+  storeBotSessionInfo,
   storeSession,
+  updateSessionUserId,
 } from '../../../util/sessions';
 import { forceWebsync } from '../../../util/websync';
 import {
@@ -42,6 +52,9 @@ import {
 import { updateAuth } from '../../reducers/auth';
 import { selectSharedSettings } from '../../selectors/sharedState';
 import { destroySharedStatePort } from '../../shared/sharedStateConnector';
+
+let pendingBotToken: string | undefined;
+let hasPendingBotAuthSucceeded = false;
 
 addActionHandler('initApi', (global, actions): ActionReturnType => {
   const initialLocationHash = parseInitialLocationHash();
@@ -62,14 +75,19 @@ addActionHandler('initApi', (global, actions): ActionReturnType => {
     .map(({ userId }) => userId)
     .filter(Boolean);
 
+  const sessionData = loadStoredBotSession();
+  const botToken = loadStoredBotToken();
+  const requestedDcId = initialLocationHash?.tgWebAuthDcId ? Number(initialLocationHash.tgWebAuthDcId) : undefined;
+
   void initApi(actions.apiUpdate, {
     userAgent: navigator.userAgent,
     platform: PLATFORM_ENV,
-    sessionData: loadStoredSession(),
+    sessionData,
+    botToken,
     isWebmSupported: IS_WEBM_SUPPORTED,
     maxBufferSize: MAX_BUFFER_SIZE,
     webAuthToken: initialLocationHash?.tgWebAuthToken,
-    dcId: initialLocationHash?.tgWebAuthDcId ? Number(initialLocationHash?.tgWebAuthDcId) : undefined,
+    dcId: requestedDcId,
     mockScenario: initialLocationHash?.mockScenario,
     shouldAllowHttpTransport,
     shouldForceHttpTransport,
@@ -81,6 +99,31 @@ addActionHandler('initApi', (global, actions): ActionReturnType => {
   });
 
   void setShouldEnableDebugLog(Boolean(shouldCollectDebugLogs));
+});
+
+addActionHandler('setAuthBotToken', (global, actions, payload): ActionReturnType => {
+  const { botToken } = payload;
+  const floodWaitSeconds = getBotAuthFloodWaitSeconds();
+
+  if (floodWaitSeconds) {
+    return updateAuth(global, {
+      isLoading: false,
+      errorKey: buildFloodWaitErrorKey(floodWaitSeconds),
+    });
+  }
+
+  if (global.auth.isLoading && pendingBotToken && !hasPendingBotAuthSucceeded) {
+    return global;
+  }
+
+  pendingBotToken = botToken;
+  hasPendingBotAuthSucceeded = false;
+  void callApi('provideAuthBotToken', botToken);
+
+  return updateAuth(global, {
+    isLoading: true,
+    errorKey: undefined,
+  });
 });
 
 addActionHandler('setAuthPhoneNumber', (global, actions, payload): ActionReturnType => {
@@ -191,11 +234,81 @@ addActionHandler('saveSession', (global, actions, payload): ActionReturnType => 
 
   const { sessionData } = payload;
   if (sessionData) {
-    storeSession(sessionData);
+    const hasStoredSessionData = storeSession(sessionData);
+    if (hasStoredSessionData && pendingBotToken && hasPendingBotAuthSucceeded) {
+      if (global.currentUserId) {
+        updateSessionUserId(global.currentUserId);
+      }
+
+      if (storeBotSessionInfo(pendingBotToken)) {
+        clearBotAuthFloodWait();
+        pendingBotToken = undefined;
+        hasPendingBotAuthSucceeded = false;
+      }
+    }
   } else {
     clearStoredSession();
+    pendingBotToken = undefined;
+    hasPendingBotAuthSucceeded = false;
   }
 });
+
+addActionHandler('markBotSession', (): ActionReturnType => {
+  if (!pendingBotToken) {
+    return;
+  }
+
+  hasPendingBotAuthSucceeded = true;
+
+  if (storeBotSessionInfo(pendingBotToken)) {
+    clearBotAuthFloodWait();
+    pendingBotToken = undefined;
+    hasPendingBotAuthSucceeded = false;
+  }
+});
+
+function buildFloodWaitErrorKey(seconds: number): RegularLangFnParameters {
+  return {
+    key: 'ErrorFloodTime',
+    variables: { time: buildWaitTimeKey(seconds) },
+  };
+}
+
+function buildWaitTimeKey(seconds: number): RegularLangFnParameters {
+  if (seconds < MINUTE) {
+    return {
+      key: 'Seconds',
+      variables: { count: seconds },
+      options: { pluralValue: seconds },
+    };
+  }
+
+  if (seconds < HOUR) {
+    const minutes = getMinutes(seconds);
+    return {
+      key: 'Minutes',
+      variables: { count: minutes },
+      options: { pluralValue: minutes },
+    };
+  }
+
+  if (seconds < DAY) {
+    const hours = getHours(seconds);
+    return {
+      key: 'Hours',
+      variables: { count: hours },
+      options: { pluralValue: hours },
+    };
+  }
+
+  const days = getDays(seconds);
+
+  return {
+    key: 'Days',
+    variables: { count: days },
+    options: { pluralValue: days },
+  };
+}
 
 addActionHandler('signOut', async (global, actions, payload): Promise<void> => {
   if ('hangUp' in actions) actions.hangUp({ tabId: getCurrentTabId() });

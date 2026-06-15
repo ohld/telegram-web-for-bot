@@ -27,7 +27,7 @@ import {
   generateRandomTimestampedBigInt,
 } from '../gramjsBuilders';
 import localDb from '../localDb';
-import { invokeRequest } from './client';
+import { invokeRequest, isBotApiSession } from './client';
 
 export function sendWatchingEmojiInteraction({
   chat,
@@ -35,6 +35,10 @@ export function sendWatchingEmojiInteraction({
 }: {
   chat: ApiChat; emoticon: string;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   return invokeRequest(new GramJs.messages.SetTyping({
     peer: buildInputPeer(chat.id, chat.accessHash),
     action: new GramJs.SendMessageEmojiInteractionSeen({
@@ -53,6 +57,10 @@ export function sendEmojiInteraction({
 }: {
   chat: ApiChat; messageId: number; emoticon: string; timestamps: number[];
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   return invokeRequest(new GramJs.messages.SetTyping({
     peer: buildInputPeer(chat.id, chat.accessHash),
     action: new GramJs.SendMessageEmojiInteraction({
@@ -74,6 +82,10 @@ export function sendEmojiInteraction({
 }
 
 export async function fetchAvailableReactions() {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetAvailableReactions({
     hash: DEFAULT_PRIMITIVES.INT,
   }));
@@ -144,11 +156,13 @@ export function sendReaction({
   reactions?: ApiReaction[];
   shouldAddToRecent?: boolean;
 }) {
+  const isBotSession = isBotApiSession();
+
   return invokeRequest(new GramJs.messages.SendReaction({
     reaction: reactions?.map((r) => buildInputReaction(r)),
     peer: buildInputPeer(chat.id, chat.accessHash),
     msgId: messageId,
-    ...(shouldAddToRecent && { addToRecent: true }),
+    addToRecent: !isBotSession && shouldAddToRecent ? true : undefined,
   }), {
     shouldReturnTrue: true,
     shouldThrow: true,
@@ -185,6 +199,10 @@ export function fetchMessageReactions({
 }: {
   ids: number[]; chat: ApiChat;
 }) {
+  if (isBotApiSession()) {
+    return;
+  }
+
   const chunks = split(ids, API_GENERAL_ID_LIMIT);
   chunks.forEach((chunkIds) => {
     invokeRequest(new GramJs.messages.GetMessagesReactions({

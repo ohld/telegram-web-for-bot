@@ -155,6 +155,10 @@ export interface LangPair {
   'StartText': undefined;
   'LoginPhonePlaceholder': undefined;
   'LoginNext': undefined;
+  'BotTokenAuthTitle': undefined;
+  'BotTokenAuthText': undefined;
+  'BotTokenPlaceholder': undefined;
+  'BotTokenLogin': undefined;
   'LoginQRLogin': undefined;
   'LoginQRTitle': undefined;
   'LoginQRHelp1': undefined;
@@ -2251,6 +2255,11 @@ export interface LangPairWithVariables<V = LangVariable> {
     'limit3': V;
     'limit4': V;
     'limit5': V;
+  };
+  'BotTokenAuthCredit': {
+    'author': V;
+    'source': V;
+    'website': V;
   };
   'SpeakingWithVolume': {
     'volume': V;

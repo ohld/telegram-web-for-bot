@@ -1,6 +1,8 @@
 import { getActions } from '../global';
 
-import { DEBUG, DEBUG_MORE, IS_TEST } from '../config';
+import {
+  ASSET_CACHE_NAME, DEBUG, DEBUG_MORE, IS_TEST,
+} from '../config';
 import { IS_ANDROID, IS_IOS, IS_SERVICE_WORKER_SUPPORTED } from './browser/windowEnvironment';
 import { formatShareText } from './deeplink';
 import { validateFiles } from './files';
@@ -48,6 +50,14 @@ function subscribeToWorker() {
 if (IS_SERVICE_WORKER_SUPPORTED) {
   window.addEventListener('load', async () => {
     try {
+      if (DEBUG) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        const ourRegistrations = registrations.filter((r) => !r.scope.includes(IGNORE_WORKER_PATH));
+        await Promise.all(ourRegistrations.map((r) => r.unregister()));
+        await window.caches?.delete(ASSET_CACHE_NAME);
+        return;
+      }
+
       const controller = navigator.serviceWorker.controller;
       if (!controller || controller.scriptURL.includes(IGNORE_WORKER_PATH)) {
         const registrations = await navigator.serviceWorker.getRegistrations();

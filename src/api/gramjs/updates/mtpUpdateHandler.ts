@@ -70,6 +70,7 @@ import {
   buildApiPaidReactionPrivacy,
   buildApiReaction,
   buildMessageReactions,
+  buildMessageReactionsFromCounts,
 } from '../apiBuilders/reactions';
 import { buildApiStealthMode, buildApiStory } from '../apiBuilders/stories';
 import { buildApiEmojiInteraction, buildStickerSet } from '../apiBuilders/symbols';
@@ -382,6 +383,13 @@ export function updater(update: Update) {
       threadId: update.topMsgId,
       chatId: getApiChatIdFromMtpPeer(update.peer),
       reactions: buildMessageReactions(update.reactions),
+    });
+  } else if (update instanceof GramJs.UpdateBotMessageReactions) {
+    sendApiUpdate({
+      '@type': 'updateMessageReactions',
+      id: update.msgId,
+      chatId: getApiChatIdFromMtpPeer(update.peer),
+      reactions: buildMessageReactionsFromCounts(update.reactions),
     });
   } else if (update instanceof GramJs.UpdateMessageExtendedMedia) {
     const chatId = getApiChatIdFromMtpPeer(update.peer);
@@ -1191,6 +1199,12 @@ export function updater(update: Update) {
     // Do nothing, handled on the manager side
   } else if (update instanceof GramJs.UpdateMessageID || update instanceof GramJs.UpdateShortSentMessage) {
     // Do nothing, handled when sending the message
+  } else if (
+    update instanceof GramJs.UpdateBotMessageReaction
+    || update instanceof GramJs.UpdateChannelParticipant
+    || update instanceof GramJs.UpdateBotStopped
+  ) {
+    // Do nothing; bot-only qts state is handled by the update manager
   } else if (DEBUG) {
     const params = typeof update === 'object' && 'className' in update ? update.className : update;
     log('UNEXPECTED UPDATE', params);

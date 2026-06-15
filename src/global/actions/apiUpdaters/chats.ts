@@ -6,7 +6,7 @@ import { ARCHIVED_FOLDER_ID, MAX_ACTIVE_PINNED_CHATS, SERVICE_NOTIFICATIONS_USER
 import { buildCollectionByKey, omit } from '../../../util/iteratees';
 import { isLocalMessageId } from '../../../util/keys/messageKey';
 import { closeMessageNotifications, notifyAboutMessage } from '../../../util/notifications';
-import { checkIfHasUnreadReactions, isChatChannel } from '../../helpers';
+import { checkIfHasUnreadReactions, isChatChannel, isCurrentUserBot } from '../../helpers';
 import {
   addActionHandler, getGlobal, setGlobal,
 } from '../../index';
@@ -548,6 +548,11 @@ addActionHandler('apiUpdate', (global, actions, update): ActionReturnType => {
 
       const chat = selectChat(global, chatId);
       if (!chat?.isForum) return undefined;
+
+      if (isCurrentUserBot(global)) {
+        actions.loadTopics({ chatId, force: true });
+        return undefined;
+      }
 
       actions.loadTopicById({ chatId, topicId });
 

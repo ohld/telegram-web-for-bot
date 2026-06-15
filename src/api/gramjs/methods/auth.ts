@@ -16,6 +16,9 @@ const authController: {
   reject?: (error: Error) => void;
 } = {};
 
+// Bot token can arrive in the same worker batch as `initApi` before the auth callback is installed
+let pendingBotToken: string | undefined;
+
 export function onWebAuthTokenFailed() {
   sendApiUpdate({
     '@type': 'updateWebAuthTokenFailed',
@@ -31,6 +34,21 @@ export function onPasskeyOption(option: ApiPasskeyOption) {
 
 export function onRequestPhoneNumber() {
   sendApiUpdate(buildAuthStateUpdate('authorizationStateWaitPhoneNumber'));
+
+  return new Promise<string>((resolve, reject) => {
+    authController.resolve = resolve;
+    authController.reject = reject;
+  });
+}
+
+export function onRequestBotToken() {
+  if (pendingBotToken) {
+    const botToken = pendingBotToken;
+    pendingBotToken = undefined;
+    return Promise.resolve(botToken);
+  }
+
+  sendApiUpdate(buildAuthStateUpdate('authorizationStateWaitBotToken'));
 
   return new Promise<string>((resolve, reject) => {
     authController.resolve = resolve;
@@ -85,6 +103,8 @@ export function onRequestQrCode(qrCode: { token: Buffer; expires: number }) {
 }
 
 export function onAuthError(err: Error) {
+  pendingBotToken = undefined;
+
   if (err instanceof UserAlreadyAuthorizedError) {
     sendApiUpdate({
       '@type': 'updateUserAlreadyAuthorized',
@@ -103,6 +123,8 @@ export function onAuthError(err: Error) {
 }
 
 export function onAuthReady() {
+  pendingBotToken = undefined;
+
   sendApiUpdate(buildAuthStateUpdate('authorizationStateReady'));
 }
 
@@ -127,6 +149,19 @@ export function provideAuthPhoneNumber(phoneNumber: string) {
   }
 
   authController.resolve(phoneNumber);
+}
+
+export function provideAuthBotToken(botToken: string) {
+  const { resolve } = authController;
+  if (!resolve) {
+    pendingBotToken = botToken;
+    return;
+  }
+
+  pendingBotToken = undefined;
+  authController.resolve = undefined;
+  authController.reject = undefined;
+  resolve(botToken);
 }
 
 export function provideAuthCode(code: string) {
@@ -156,6 +191,8 @@ export function provideAuthRegistration(registration: { firstName: string; lastN
 }
 
 export function restartAuth() {
+  pendingBotToken = undefined;
+
   if (!authController.reject) {
     return;
   }
@@ -164,6 +201,8 @@ export function restartAuth() {
 }
 
 export function restartAuthWithQr() {
+  pendingBotToken = undefined;
+
   if (!authController.reject) {
     return;
   }
@@ -172,6 +211,8 @@ export function restartAuthWithQr() {
 }
 
 export function restartAuthWithPasskey(credentialJson: AuthenticationResponseJSON) {
+  pendingBotToken = undefined;
+
   if (!authController.reject) {
     return;
   }

@@ -1,12 +1,12 @@
 export {
   destroy, disconnect, downloadMedia, fetchCurrentUser, repairFileReference, abortChatRequests, abortRequestGroup,
   setForceHttpTransport, setShouldDebugExportedSenders, setAllowHttpTransport, requestChannelDifference,
-  setOpenedChannelIds,
+  setOpenedChannelIds, isBotApiSession,
 } from './client';
 
 export {
   provideAuthPhoneNumber, provideAuthCode, provideAuthPassword, provideAuthRegistration, restartAuth, restartAuthWithQr,
-  restartAuthWithPasskey,
+  restartAuthWithPasskey, provideAuthBotToken,
 } from './auth';
 
 export {
@@ -32,6 +32,8 @@ export * from './settings';
 export * from './twoFaSettings';
 
 export * from './bots';
+
+export * from './botApi';
 
 export * from './calls';
 

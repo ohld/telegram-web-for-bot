@@ -12,6 +12,7 @@ import useCurrentOrPrev from '../../hooks/useCurrentOrPrev';
 import useHistoryBack from '../../hooks/useHistoryBack';
 
 import Transition from '../ui/Transition';
+import AuthBotToken from './AuthBotToken';
 import AuthCode from './AuthCode.async';
 import AuthPassword from './AuthPassword.async';
 import AuthPhoneNumber from './AuthPhoneNumber';
@@ -61,12 +62,14 @@ const Auth = ({
         return <AuthPassword />;
       case 'authorizationStateWaitRegistration':
         return <AuthRegister />;
+      case 'authorizationStateWaitBotToken':
+        return <AuthBotToken />;
       case 'authorizationStateWaitPhoneNumber':
         return <AuthPhoneNumber />;
       case 'authorizationStateWaitQrCode':
         return <AuthQrCode />;
       default:
-        return isMobile ? <AuthPhoneNumber /> : <AuthQrCode />;
+        return <AuthBotToken />;
     }
   }
 
@@ -78,12 +81,14 @@ const Auth = ({
         return 1;
       case 'authorizationStateWaitRegistration':
         return 2;
-      case 'authorizationStateWaitPhoneNumber':
+      case 'authorizationStateWaitBotToken':
         return 3;
-      case 'authorizationStateWaitQrCode':
+      case 'authorizationStateWaitPhoneNumber':
         return 4;
+      case 'authorizationStateWaitQrCode':
+        return 5;
       default:
-        return isMobile ? 3 : 4;
+        return 3;
     }
   }
 

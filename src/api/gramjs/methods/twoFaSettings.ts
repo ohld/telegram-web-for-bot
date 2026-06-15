@@ -3,7 +3,7 @@ import { Api as GramJs } from '../../../lib/gramjs';
 import { checkErrorType, wrapError } from '../helpers/misc';
 import { sendApiUpdate } from '../updates/apiUpdateEmitter';
 import {
-  getCurrentPassword, getTmpPassword, invokeRequest, updateTwoFaSettings,
+  getCurrentPassword, getTmpPassword, invokeRequest, isBotApiSession, updateTwoFaSettings,
 } from './client';
 
 const emailCodeController: {
@@ -12,6 +12,10 @@ const emailCodeController: {
 } = {};
 
 export async function getPasswordInfo() {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.account.GetPassword());
   if (!result) {
     return undefined;

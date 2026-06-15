@@ -37,6 +37,7 @@ export type UiLoaderPage =
   'main'
   | 'lock'
   | 'inactive'
+  | 'authBotToken'
   | 'authCode'
   | 'authPassword'
   | 'authPhoneNumber'
@@ -87,6 +88,10 @@ const preloadTasks = {
     preloadImage(spoilerMaskPath),
     preloadImage(starIconPath),
     localizationReadyPromise,
+  ]),
+  authBotToken: () => Promise.all([
+    preloadFonts(),
+    preloadImage(telegramLogoPath),
   ]),
   authPhoneNumber: () => Promise.all([
     preloadFonts(),

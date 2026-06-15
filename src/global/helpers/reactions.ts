@@ -2,12 +2,28 @@ import type {
   ApiAvailableReaction,
   ApiChatReactions,
   ApiMessage,
+  ApiReaction,
   ApiReactionCount,
   ApiReactionKey,
   ApiReactions,
   ApiReactionWithPaid,
 } from '../../api/types';
 import type { GlobalState } from '../types';
+
+export const DEFAULT_REACTION_EMOTICONS = [
+  '\u{1F44D}',
+  '\u2764\uFE0F',
+  '\u{1F525}',
+  '\u{1F44F}',
+  '\u{1F601}',
+  '\u{1F389}',
+  '\u{1F914}',
+] as const;
+
+export const DEFAULT_REACTIONS: ApiReaction[] = DEFAULT_REACTION_EMOTICONS.map((emoticon) => ({
+  type: 'emoji',
+  emoticon,
+}));
 
 export function getMessageRecentReaction(message: Partial<ApiMessage>) {
   return message.isOutgoing ? message.reactions?.recentReactions?.[0] : undefined;
@@ -61,6 +77,16 @@ export function canSendReaction(reaction: ApiReactionWithPaid, chatReactions: Ap
   }
 
   return false;
+}
+
+export function buildLocalAvailableReaction(reaction: ApiReactionWithPaid): ApiAvailableReaction | undefined {
+  if (reaction.type !== 'emoji') return undefined;
+
+  return {
+    reaction,
+    title: reaction.emoticon,
+    isLocalCache: true,
+  };
 }
 
 export function sortReactions<T extends ApiAvailableReaction | ApiReactionWithPaid>(

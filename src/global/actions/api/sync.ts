@@ -3,7 +3,7 @@ import { addCallback } from '../../../lib/teact/teactn';
 import type { ThreadId, ThreadLocalState } from '../../../types';
 import type { RequiredGlobalActions } from '../../index';
 import type { ActionReturnType, GlobalState } from '../../types';
-import { MAIN_THREAD_ID } from '../../../api/types';
+import { type ApiChat, MAIN_THREAD_ID } from '../../../api/types';
 
 import { DEBUG, MESSAGE_LIST_SLICE, SERVICE_NOTIFICATIONS_USER_ID } from '../../../config';
 import { getCurrentTabId } from '../../../util/establishMultitabRole';
@@ -11,8 +11,9 @@ import { init as initFolderManager } from '../../../util/folderManager';
 import {
   buildCollectionByKey, omitUndefined, pick, unique,
 } from '../../../util/iteratees';
+import { hasStoredBotSession } from '../../../util/sessions';
 import { callApi } from '../../../api/gramjs';
-import { getIsSavedDialog } from '../../helpers';
+import { getIsSavedDialog, getUserFullName } from '../../helpers';
 import {
   addActionHandler, getActions, getGlobal, setGlobal,
 } from '../../index';
@@ -37,6 +38,7 @@ import {
   selectCurrentMessageList,
   selectTabState,
   selectTopics,
+  selectUser,
   selectViewportIds,
 } from '../../selectors';
 import {
@@ -64,6 +66,11 @@ addActionHandler('sync', (global, actions): ActionReturnType => {
   global = getGlobal();
   global = { ...global, isSyncing: true };
   setGlobal(global);
+
+  if (selectIsCurrentBot(global)) {
+    finishBotSync(global);
+    return;
+  }
 
   // Workaround for `isSyncing = true` sometimes getting stuck for some reason
   releaseStatusTimeout = window.setTimeout(() => {
@@ -103,6 +110,167 @@ addActionHandler('sync', (global, actions): ActionReturnType => {
     },
   });
 });
+
+function selectIsCurrentBot<T extends GlobalState>(global: T) {
+  const { currentUserId } = global;
+  return Boolean(
+    (currentUserId && selectUser(global, currentUserId)?.type === 'userTypeBot')
+    || hasStoredBotSession(),
+  );
+}
+
+function finishBotSync<T extends GlobalState>(global: T) {
+  if (releaseStatusTimeout) {
+    clearTimeout(releaseStatusTimeout);
+    releaseStatusTimeout = undefined;
+  }
+
+  global = getGlobal();
+  global = finishBotChatList(global);
+  global = {
+    ...global,
+    isSyncing: false,
+    isSynced: true,
+    isFetchingDifference: false,
+  };
+  setGlobal(global);
+
+  if (DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log('>>> FINISH BOT SYNC');
+  }
+}
+
+function finishBotChatList<T extends GlobalState>(global: T) {
+  const activeIds = unique([
+    ...(global.chats.listIds.active || []),
+    ...selectBotActiveChatIds(global),
+  ]);
+  const privateChats = buildBotPrivateChats(global, activeIds);
+  const lastMessageByChatId = buildBotLastMessageIds(global, activeIds);
+
+  return {
+    ...global,
+    chats: {
+      ...global.chats,
+      byId: {
+        ...global.chats.byId,
+        ...privateChats,
+      },
+      listIds: {
+        ...global.chats.listIds,
+        active: activeIds,
+        archived: global.chats.listIds.archived || [],
+        saved: global.chats.listIds.saved || [],
+      },
+      isFullyLoaded: {
+        ...global.chats.isFullyLoaded,
+        active: true,
+        archived: true,
+        saved: true,
+      },
+      loadingParameters: {
+        ...global.chats.loadingParameters,
+        active: {},
+        archived: {},
+        saved: {},
+      },
+      totalCount: {
+        ...global.chats.totalCount,
+        all: activeIds.length,
+        archived: global.chats.totalCount.archived || 0,
+        saved: global.chats.totalCount.saved || 0,
+      },
+      lastMessageIds: {
+        ...global.chats.lastMessageIds,
+        all: {
+          ...global.chats.lastMessageIds.all,
+          ...lastMessageByChatId,
+        },
+      },
+    },
+  };
+}
+
+function buildBotPrivateChats<T extends GlobalState>(global: T, chatIds: string[]) {
+  return chatIds.reduce<Record<string, ApiChat>>((privateChats, chatId) => {
+    if (selectChat(global, chatId)) {
+      return privateChats;
+    }
+
+    const user = selectUser(global, chatId);
+    const title = getUserFullName(user);
+    if (!user || !title) {
+      return privateChats;
+    }
+
+    privateChats[chatId] = omitUndefined({
+      id: user.id,
+      type: 'chatTypePrivate',
+      title,
+      isMin: user.isMin,
+      accessHash: user.accessHash,
+      isVerified: user.isVerified,
+      usernames: user.usernames,
+      hasUsername: user.hasUsername,
+      hasVideoAvatar: user.hasVideoAvatar,
+      avatarPhotoId: user.avatarPhotoId,
+      isSupport: user.isSupport,
+      fakeType: user.fakeType,
+      color: user.color,
+      profileColor: user.profileColor,
+      emojiStatus: user.emojiStatus,
+      isBotForum: user.isBotForum,
+      botVerificationIconId: user.botVerificationIconId,
+      paidMessagesStars: user.paidMessagesStars,
+    });
+
+    return privateChats;
+  }, {});
+}
+
+function buildBotLastMessageIds<T extends GlobalState>(global: T, chatIds: string[]) {
+  return chatIds.reduce<Record<string, number>>((lastMessageByChatId, chatId) => {
+    const messageId = selectLatestMessageId(global, chatId);
+    if (messageId) {
+      lastMessageByChatId[chatId] = messageId;
+    }
+
+    return lastMessageByChatId;
+  }, {});
+}
+
+function selectBotActiveChatIds<T extends GlobalState>(global: T) {
+  return Object.keys(global.messages.byChatId)
+    .filter((chatId) => {
+      const chat = selectChat(global, chatId);
+      const user = selectUser(global, chatId);
+      const messages = selectChatMessages(global, chatId);
+
+      return Boolean((chat || user) && messages && Object.keys(messages).length);
+    })
+    .sort((firstChatId, secondChatId) => {
+      return selectLatestMessageDate(global, secondChatId) - selectLatestMessageDate(global, firstChatId);
+    });
+}
+
+function selectLatestMessageId<T extends GlobalState>(global: T, chatId: string) {
+  const messages = selectChatMessages(global, chatId);
+  if (!messages) return undefined;
+
+  return Object.values(messages).reduce((latestMessageId, message) => {
+    return message.date > (messages[latestMessageId]?.date || 0) ? message.id : latestMessageId;
+  }, 0);
+}
+
+function selectLatestMessageDate<T extends GlobalState>(global: T, chatId: string) {
+  const messages = selectChatMessages(global, chatId);
+  if (!messages) return 0;
+
+  return Object.values(messages).reduce((latestDate, message) => {
+    return Math.max(latestDate, message.date);
+  }, 0);
+}
 
 async function loadAndReplaceMessages<T extends GlobalState>(global: T, actions: RequiredGlobalActions) {
   let areMessagesLoaded = false;
@@ -416,16 +584,18 @@ function loadTopMessages<T extends GlobalState>(
 let previousGlobal: GlobalState | undefined;
 // RAF can be unreliable when device goes into sleep mode, so sync logic is handled outside any component
 addCallback((global: GlobalState) => {
-  const { connectionState, auth, isSynced } = global;
+  const { connectionState, auth, isSynced, isSyncing } = global;
   const { isMasterTab } = selectTabState(global);
-  if (!isMasterTab || isSynced || (previousGlobal?.connectionState === connectionState
+  if (!isMasterTab || isSynced || isSyncing || (previousGlobal?.connectionState === connectionState
     && previousGlobal?.auth.state === auth.state)) {
     previousGlobal = global;
     return;
   }
 
   if (connectionState === 'connectionStateReady' && auth.state === 'authorizationStateReady') {
+    previousGlobal = global;
     getActions().sync();
+    return;
   }
 
   previousGlobal = global;

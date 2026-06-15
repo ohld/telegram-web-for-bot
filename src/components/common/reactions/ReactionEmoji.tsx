@@ -89,6 +89,7 @@ const ReactionEmoji: FC<OwnProps> = ({
     isSelected && styles.selected,
     !isCustom && 'sticker-reaction',
   );
+  const shouldRenderFallbackEmoji = reaction.type === 'emoji' && !availableReaction;
 
   return (
     <div
@@ -100,7 +101,9 @@ const ReactionEmoji: FC<OwnProps> = ({
       onMouseDown={handleBeforeContextMenu}
       onContextMenu={handleContextMenu}
     >
-      {isCustom ? (
+      {shouldRenderFallbackEmoji ? (
+        <span className={styles.fallbackEmoji}>{reaction.emoticon}</span>
+      ) : isCustom ? (
         <CustomEmoji
           ref={ref}
           documentId={reaction.documentId}

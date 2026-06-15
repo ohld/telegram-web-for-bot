@@ -1,5 +1,6 @@
 import type { ApiPeer, ApiUser, ApiUserStatus } from '../../api/types';
 import type { OldLangFn } from '../../hooks/useOldLang';
+import type { GlobalState } from '../types';
 
 import { ANONYMOUS_USER_ID, SERVICE_NOTIFICATIONS_USER_ID } from '../../config';
 import { formatFullDate, formatTime } from '../../util/dates/oldDateFormat';
@@ -7,6 +8,7 @@ import { DAY } from '../../util/dates/units';
 import { orderBy } from '../../util/iteratees';
 import { formatPhoneNumber } from '../../util/phoneNumber';
 import { getServerTime, getServerTimeOffset } from '../../util/serverTime';
+import { hasStoredBotSession } from '../../util/sessions';
 
 export function getUserFirstOrLastName(user?: ApiUser) {
   if (!user) {
@@ -191,6 +193,14 @@ export function isDeletedUser(user: ApiUser) {
 
 export function isUserBot(user: ApiUser) {
   return user.type === 'userTypeBot';
+}
+
+export function isCurrentUserBot<T extends GlobalState>(global: T) {
+  const { currentUserId } = global;
+  return Boolean(
+    (currentUserId && global.users.byId[currentUserId]?.type === 'userTypeBot')
+    || hasStoredBotSession(),
+  );
 }
 
 export function getCanAddContact(user: ApiUser) {

@@ -21,6 +21,7 @@ import {
   getDocumentMediaHash,
   getReactionKey,
   getUserReactions,
+  isCurrentUserBot,
   isMessageLocal,
   isSameReaction,
 } from '../../helpers';
@@ -50,6 +51,7 @@ import {
 import { selectThreadReadState } from '../../selectors/threads';
 
 const INTERACTION_RANDOM_OFFSET = 40;
+const BOT_REGULAR_REACTIONS_LIMIT = 1;
 
 let interactionLocalId = 0;
 
@@ -204,6 +206,7 @@ addActionHandler('toggleReaction', async (global, actions, payload): Promise<voi
     return;
   }
 
+  const isBotSession = isCurrentUserBot(global);
   const isInSaved = selectIsChatWithSelf(global, chatId);
 
   const isInDocumentGroup = Boolean(message.groupedId) && !message.isInAlbum;
@@ -221,7 +224,7 @@ addActionHandler('toggleReaction', async (global, actions, payload): Promise<voi
   const newUserReactions = hasReaction
     ? userReactions.filter((userReaction) => !isSameReaction(userReaction, reaction)) : [...userReactions, reaction];
 
-  const limit = selectMaxUserReactions(global);
+  const limit = isBotSession ? BOT_REGULAR_REACTIONS_LIMIT : selectMaxUserReactions(global);
   const [paidReactions, regularReactions] = partition(newUserReactions, (r) => r.type === 'paid');
   const trimmedRegularReactions = regularReactions.slice(-limit) as ApiReaction[];
   const localReactions = [...paidReactions, ...trimmedRegularReactions];

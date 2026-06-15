@@ -9,6 +9,13 @@
     color: var(--color-heart) !important;
   }
 
+  &.fallback-emoji {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+
   .thumb,
   .media {
     position: absolute;

@@ -8,6 +8,7 @@ type ErrorHandler = (error: Error) => any;
 
 // eslint-disable-next-line no-console
 const DEFAULT_ERROR_HANDLER = console.error;
+const MAX_TARGET_CLASSES = 4;
 
 let onError: ErrorHandler = DEFAULT_ERROR_HANDLER;
 
@@ -181,7 +182,10 @@ function setupMutationObserver() {
           return;
         }
 
-        onError(new Error(`Unexpected mutation detected: \`${type === 'attributes' ? attributeName : type}\``));
+        onError(new Error(
+          `Unexpected mutation detected: \`${type === 'attributes' ? attributeName : type}\``
+          + describeMutationTarget(target),
+        ));
       });
     }
 
@@ -199,6 +203,25 @@ function setupMutationObserver() {
 function clearMutationObserver() {
   observer?.disconnect();
   observer = undefined;
+}
+
+function describeMutationTarget(target: Node) {
+  if (!(target instanceof Element)) {
+    return '';
+  }
+
+  const tagName = target.tagName.toLowerCase();
+  const id = target.id ? `#${target.id}` : '';
+  const className = target.getAttribute('class') ?? '';
+  const classes = className
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, MAX_TARGET_CLASSES)
+    .map((token) => `.${token}`)
+    .join('');
+
+  return ` on ${tagName}${id}${classes}`;
 }
 
 function onMeasure(propName: string) {

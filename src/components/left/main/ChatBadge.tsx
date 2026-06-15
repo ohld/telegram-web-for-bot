@@ -121,10 +121,11 @@ const ChatBadge = ({
   const unreadMentionsCount = isForum ? topicsWithUnreadMentionsIds?.length : stateUnreadMentionsCount;
   const unreadPollVotesCount = isForum ? topicsWithUnreadPollVotesIds?.length : stateUnreadPollVotesCount;
   const unreadReactionsCount = isForum ? topicsWithUnreadReactionsIds?.length : stateUnreadReactionsCount;
+  const topicMutedUntil = topic?.notifySettings?.mutedUntil;
 
   const shouldBeUnMuted = useMemo(() => {
     if (!isForum) {
-      return !isMuted || topic?.notifySettings.mutedUntil === 0;
+      return !isMuted || topicMutedUntil === 0;
     }
 
     if (!topicsWithStatefulUnreadIds?.length) {
@@ -132,16 +133,16 @@ const ChatBadge = ({
     }
 
     if (isMuted) {
-      return topicsWithStatefulUnreadIds.some((tId) => topicsById?.[tId]?.notifySettings.mutedUntil === 0);
+      return topicsWithStatefulUnreadIds.some((tId) => topicsById?.[tId]?.notifySettings?.mutedUntil === 0);
     }
 
     const isEveryUnreadMuted = topicsWithStatefulUnreadIds.every((tId) => {
-      const mutedUntil = topicsById?.[tId]?.notifySettings.mutedUntil;
+      const mutedUntil = topicsById?.[tId]?.notifySettings?.mutedUntil;
       return mutedUntil && mutedUntil > getServerTime();
     });
 
     return !isEveryUnreadMuted;
-  }, [isForum, isMuted, topicsById, topic?.notifySettings.mutedUntil, topicsWithStatefulUnreadIds]);
+  }, [isForum, isMuted, topicsById, topicMutedUntil, topicsWithStatefulUnreadIds]);
 
   const isUnread = Boolean((unreadCount || hasUnreadMark) && !isSavedDialog);
 

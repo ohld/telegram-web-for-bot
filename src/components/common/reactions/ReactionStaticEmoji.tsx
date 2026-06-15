@@ -18,6 +18,8 @@ import './ReactionStaticEmoji.scss';
 
 import blankUrl from '../../../assets/blank.png';
 
+const FALLBACK_EMOJI_SIZE_FACTOR = 0.75;
+
 type OwnProps = {
   reaction: ApiReaction;
   availableReactions?: ApiAvailableReaction[];
@@ -54,6 +56,7 @@ const ReactionStaticEmoji: FC<OwnProps> = ({
 
   const shouldApplySizeFix = reaction.type === 'emoji' && reaction.emoticon === '🦄';
   const shouldReplaceWithHeartIcon = withIconHeart && reaction.type === 'emoji' && reaction.emoticon === '❤';
+  const shouldRenderFallbackEmoji = reaction.type === 'emoji' && !availableReaction;
 
   if (reaction.type === 'custom') {
     return (
@@ -69,6 +72,19 @@ const ReactionStaticEmoji: FC<OwnProps> = ({
   if (shouldReplaceWithHeartIcon) {
     return (
       <Icon name="heart" className="ReactionStaticEmoji" style={`font-size: ${size}px; width: ${size}px`} />
+    );
+  }
+
+  if (shouldRenderFallbackEmoji) {
+    return (
+      <span
+        className={buildClassName('ReactionStaticEmoji', 'fallback-emoji', className)}
+        style={size
+          ? `width: ${size}px; height: ${size}px; font-size: ${size * FALLBACK_EMOJI_SIZE_FACTOR}px`
+          : undefined}
+      >
+        {reaction.emoticon}
+      </span>
     );
   }
 

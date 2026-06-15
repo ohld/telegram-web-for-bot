@@ -122,7 +122,9 @@ import { sendApiUpdate } from '../updates/apiUpdateEmitter';
 import { processMessageAndUpdateThreadInfo } from '../updates/entityProcessor';
 import { processAffectedHistory, updateChannelState } from '../updates/updateManager';
 import { requestChatUpdate } from './chats';
-import { handleGramJsUpdate, invokeRequest, uploadFile } from './client';
+import {
+  handleGramJsUpdate, invokeRequest, isBotApiSession, uploadFile,
+} from './client';
 
 const FAST_SEND_TIMEOUT = 1000;
 const INPUT_WAVEFORM_LENGTH = 63;
@@ -148,6 +150,15 @@ type SearchResults = {
   searchFlood?: ApiSearchPostsFlood;
 };
 
+function buildEmptySearchResults(): SearchResults {
+  return {
+    messages: [],
+    topics: [],
+    userStatusesById: {},
+    totalCount: 0,
+  };
+}
+
 export async function fetchMessages({
   chat,
   threadId,
@@ -163,6 +174,10 @@ export async function fetchMessages({
   addOffset?: number;
   limit: number;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const RequestClass = threadId === MAIN_THREAD_ID
     ? GramJs.messages.GetHistory : isSavedDialog
       ? GramJs.messages.GetSavedHistory : GramJs.messages.GetReplies;
@@ -382,6 +397,13 @@ export function sendApiMessage(
   } = params;
 
   if (!chat) return undefined;
+  const isBotSession = isBotApiSession();
+  if (isBotSession) {
+    const botSendError = getBotSendMessageError(params);
+    if (botSendError) {
+      return failLocalMessageSend(localMessage, chat.id, botSendError);
+    }
+  }
 
   let isSendCompleted = false;
   const timeout = setTimeout(() => {
@@ -543,14 +565,14 @@ export function sendApiMessage(
       randomId,
       replyTo: replyInfo && buildInputReplyTo(replyInfo),
       silent: isSilent || undefined,
-      scheduleDate: scheduledAt,
-      scheduleRepeatPeriod,
-      sendAs: sendAs && buildInputPeer(sendAs.id, sendAs.accessHash),
-      updateStickersetsOrder: shouldUpdateStickerSetOrder || undefined,
+      scheduleDate: isBotSession ? undefined : scheduledAt,
+      scheduleRepeatPeriod: isBotSession ? undefined : scheduleRepeatPeriod,
+      sendAs: !isBotSession && sendAs ? buildInputPeer(sendAs.id, sendAs.accessHash) : undefined,
+      updateStickersetsOrder: !isBotSession && shouldUpdateStickerSetOrder ? true : undefined,
       invertMedia: isInvertedMedia || undefined,
-      effect: effectId ? BigInt(effectId) : undefined,
-      allowPaidStars: messagePriceInStars ? BigInt(messagePriceInStars) : undefined,
-      suggestedPost: suggestedPostInfo && buildInputSuggestedPost(suggestedPostInfo),
+      effect: !isBotSession && effectId ? BigInt(effectId) : undefined,
+      allowPaidStars: !isBotSession && messagePriceInStars ? BigInt(messagePriceInStars) : undefined,
+      suggestedPost: !isBotSession && suggestedPostInfo ? buildInputSuggestedPost(suggestedPostInfo) : undefined,
     };
 
     try {
@@ -592,6 +614,61 @@ export function sendApiMessage(
   })();
 
   return messagePromise;
+}
+
+function getBotSendMessageError({
+  chat,
+  text,
+  attachment,
+  sticker,
+  story,
+  gif,
+  poll,
+  todo,
+  contact,
+  dice,
+  groupedId,
+  suggestedPostInfo,
+  suggestedMedia,
+  scheduledAt,
+  scheduleRepeatPeriod,
+  sendAs,
+  effectId,
+  webPageUrl,
+  messagePriceInStars,
+}: SendMessageParams) {
+  if (!chat) {
+    return 'PEER_ID_INVALID';
+  }
+
+  const entityType = getEntityTypeById(chat.id);
+  if ((entityType === 'user' || entityType === 'channel') && !chat.accessHash) {
+    return 'PEER_ID_INVALID';
+  }
+
+  if (!text?.trim()) {
+    return 'MESSAGE_EMPTY';
+  }
+
+  if (
+    attachment || sticker || story || gif || poll || todo || contact || dice || groupedId || suggestedPostInfo
+    || suggestedMedia || scheduledAt || scheduleRepeatPeriod || sendAs || effectId || webPageUrl || messagePriceInStars
+  ) {
+    return 'BOT_METHOD_INVALID';
+  }
+
+  return undefined;
+}
+
+function failLocalMessageSend(localMessage: ApiMessage, chatId: string, error: string) {
+  sendApiUpdate({
+    '@type': localMessage.isScheduled ? 'updateScheduledMessageSendFailed' : 'updateMessageSendFailed',
+    chatId,
+    localId: localMessage.id,
+    error,
+  });
+
+  return Promise.resolve();
 }
 
 export async function sendMessage(
@@ -1328,6 +1405,10 @@ export async function sendMessageAction({
 }: {
   peer: ApiPeer; threadId?: ThreadId; action: ApiSendMessageAction;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const mtpAction = buildSendMessageAction(action);
   if (!mtpAction) {
     if (DEBUG) {
@@ -1359,6 +1440,10 @@ export async function markMessageListRead({
 }: {
   chat: ApiChat; threadId: ThreadId; maxId?: number;
 }) {
+  if (isBotApiSession()) {
+    return;
+  }
+
   const isChannel = getEntityTypeById(chat.id) === 'channel';
 
   if (isChannel && threadId === MAIN_THREAD_ID) {
@@ -1405,6 +1490,10 @@ export async function markMessagesRead({
 }: {
   chat: ApiChat; messageIds: number[];
 }) {
+  if (isBotApiSession()) {
+    return;
+  }
+
   const isChannel = getEntityTypeById(chat.id) === 'channel';
 
   const result = await invokeRequest(
@@ -1448,6 +1537,10 @@ export async function fetchMessageViews({
   ids: number[];
   shouldIncrement?: boolean;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const chunks = split(ids, API_GENERAL_ID_LIMIT);
   const results = await Promise.all(chunks.map((chunkIds) => (
     invokeRequest(new GramJs.messages.GetMessagesViews({
@@ -1496,6 +1589,10 @@ export async function fetchFactChecks({
 }
 
 export function fetchPaidReactionPrivacy() {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   return invokeRequest(new GramJs.messages.GetPaidReactionPrivacy(), { shouldReturnTrue: true });
 }
 
@@ -1505,6 +1602,10 @@ export function reportMessagesDelivery({
   chat: ApiChat;
   messageIds: number[];
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   return invokeRequest(new GramJs.messages.ReportMessagesDelivery({
     peer: buildInputPeer(chat.id, chat.accessHash),
     id: messageIds,
@@ -1590,6 +1691,10 @@ export async function searchMessagesInChat({
   maxDate?: number;
   fromPeer?: ApiPeer;
 }): Promise<SearchResults | undefined> {
+  if (isBotApiSession()) {
+    return buildEmptySearchResults();
+  }
+
   let filter;
   switch (type) {
     case 'media':
@@ -1687,6 +1792,10 @@ export async function searchMessagesGlobal({
   minDate?: number;
   maxDate?: number;
 }): Promise<SearchResults | undefined> {
+  if (isBotApiSession()) {
+    return buildEmptySearchResults();
+  }
+
   if (type === 'publicPosts') {
     return searchPublicPosts({
       query,
@@ -1785,6 +1894,10 @@ export async function searchPublicPosts({
   offsetId?: number;
   limit?: number;
 }): Promise<SearchResults | undefined> {
+  if (isBotApiSession()) {
+    return buildEmptySearchResults();
+  }
+
   const peer = (offsetPeer && buildInputPeer(offsetPeer.id, offsetPeer.accessHash)) || new GramJs.InputPeerEmpty();
 
   const resultFlood = await checkSearchPostsFlood(query);
@@ -1840,6 +1953,10 @@ export async function searchPublicPosts({
 }
 
 export async function checkSearchPostsFlood(query?: string) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.channels.CheckSearchPostsFlood({ query }));
 
   if (!result) {
@@ -2091,6 +2208,10 @@ export async function findFirstMessageIdAfterDate({
   chat: ApiChat;
   timestamp: number;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetHistory({
     peer: buildInputPeer(chat.id, chat.accessHash),
     offsetDate: timestamp,
@@ -2114,6 +2235,10 @@ export async function findFirstMessageIdAfterDate({
 }
 
 export async function fetchScheduledHistory({ chat }: { chat: ApiChat }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const { id, accessHash } = chat;
 
   const result = await invokeRequest(new GramJs.messages.GetScheduledHistory({
@@ -2139,6 +2264,10 @@ export async function fetchScheduledHistory({ chat }: { chat: ApiChat }) {
 }
 
 export async function sendScheduledMessages({ chat, ids }: { chat: ApiChat; ids: number[] }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const { id, accessHash } = chat;
 
   await invokeRequest(new GramJs.messages.SendScheduledMessages({
@@ -2148,6 +2277,10 @@ export async function sendScheduledMessages({ chat, ids }: { chat: ApiChat; ids:
 }
 
 export async function fetchPinnedMessages({ chat, threadId }: { chat: ApiChat; threadId: ThreadId }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.Search(
     {
       peer: buildInputPeer(chat.id, chat.accessHash),
@@ -2184,6 +2317,10 @@ export async function fetchPinnedMessages({ chat, threadId }: { chat: ApiChat; t
 }
 
 export async function fetchSeenBy({ chat, messageId }: { chat: ApiChat; messageId: number }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetMessageReadParticipants({
     peer: buildInputPeer(chat.id, chat.accessHash),
     msgId: messageId,
@@ -2205,6 +2342,10 @@ export async function fetchSendAs({
   isForPaidReactions?: true;
   chat: ApiChat;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.channels.GetSendAs({
     forPaidReactions: isForPaidReactions,
     peer: buildInputPeer(chat.id, chat.accessHash),
@@ -2308,6 +2449,10 @@ export async function readAllMentions({
   chat: ApiChat;
   threadId?: ThreadId;
 }) {
+  if (isBotApiSession()) {
+    return;
+  }
+
   const result = await invokeRequest(new GramJs.messages.ReadMentions({
     peer: buildInputPeer(chat.id, chat.accessHash),
     topMsgId: threadId ? Number(threadId) : undefined,
@@ -2329,6 +2474,10 @@ export async function readAllReactions({
   chat: ApiChat;
   threadId?: ThreadId;
 }) {
+  if (isBotApiSession()) {
+    return;
+  }
+
   const result = await invokeRequest(new GramJs.messages.ReadReactions({
     peer: buildInputPeer(chat.id, chat.accessHash),
     topMsgId: threadId ? Number(threadId) : undefined,
@@ -2350,6 +2499,10 @@ export async function readAllPollVotes({
   chat: ApiChat;
   threadId?: ThreadId;
 }) {
+  if (isBotApiSession()) {
+    return;
+  }
+
   const result = await invokeRequest(new GramJs.messages.ReadPollVotes({
     peer: buildInputPeer(chat.id, chat.accessHash),
     topMsgId: threadId ? Number(threadId) : undefined,
@@ -2374,6 +2527,10 @@ export async function fetchUnreadMentions({
   maxId?: number;
   minId?: number;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetUnreadMentions({
     peer: buildInputPeer(chat.id, chat.accessHash),
     topMsgId: threadId ? Number(threadId) : undefined,
@@ -2413,6 +2570,10 @@ export async function fetchUnreadReactions({
   maxId?: number;
   minId?: number;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetUnreadReactions({
     peer: buildInputPeer(chat.id, chat.accessHash),
     topMsgId: threadId ? Number(threadId) : undefined,
@@ -2452,6 +2613,10 @@ export async function fetchUnreadPollVotes({
   maxId?: number;
   minId?: number;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetUnreadPollVotes({
     peer: buildInputPeer(chat.id, chat.accessHash),
     topMsgId: threadId ? Number(threadId) : undefined,
@@ -2695,6 +2860,10 @@ function handleLocalMessageUpdate(
 }
 
 export async function fetchOutboxReadDate({ chat, messageId }: { chat: ApiChat; messageId: number }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const { id, accessHash } = chat;
   const peer = buildInputPeer(id, accessHash);
 
@@ -2709,6 +2878,10 @@ export async function fetchOutboxReadDate({ chat, messageId }: { chat: ApiChat; 
 }
 
 export async function fetchQuickReplies() {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetQuickReplies({
     hash: DEFAULT_PRIMITIVES.BIGINT,
   }));
@@ -2731,6 +2904,10 @@ export async function sendQuickReply({
   chat: ApiChat;
   shortcutId: number;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   // Remove this request when the client fully supports quick replies and caches them
   const messages = await invokeRequest(new GramJs.messages.GetQuickReplyMessages({
     shortcutId,

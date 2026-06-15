@@ -30,6 +30,12 @@ export function buildMessageReactions(reactions: GramJs.MessageReactions): ApiRe
   };
 }
 
+export function buildMessageReactionsFromCounts(results: GramJs.TypeReactionCount[]): ApiReactions {
+  return {
+    results: results.map(buildReactionCount).filter(Boolean).sort(reactionCountComparator),
+  };
+}
+
 function reactionCountComparator(a: ApiReactionCount, b: ApiReactionCount) {
   if (a.reaction.type === 'paid') return -1;
   if (b.reaction.type === 'paid') return 1;

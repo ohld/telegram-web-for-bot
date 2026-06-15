@@ -54,6 +54,12 @@ addActionHandler('loadStarStatus', async (global): Promise<void> => {
   ]);
 
   if (!(starsStatus || tonStatus) || (needsTopupOptions && !topupOptions)) {
+    if (starsStatus?.balance.currency !== STARS_CURRENCY_CODE) {
+      return;
+    }
+  }
+
+  if (!(starsStatus || tonStatus)) {
     return;
   }
 
@@ -65,7 +71,7 @@ addActionHandler('loadStarStatus', async (global): Promise<void> => {
       stars: {
         ...currentStarsStatus,
         balance: starsStatus.balance,
-        topupOptions: topupOptions || currentStarsStatus!.topupOptions,
+        topupOptions: topupOptions || currentStarsStatus?.topupOptions || [],
         history: {
           all: undefined,
           inbound: undefined,

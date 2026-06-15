@@ -78,6 +78,7 @@
 }
 
 #auth-registration-form,
+#auth-bot-token-form,
 #auth-phone-number-form,
 #auth-code-form,
 #auth-password-form,
@@ -86,6 +87,7 @@
   height: 100%;
 }
 
+#auth-bot-token-form,
 #auth-phone-number-form {
   .form {
     min-height: 26.25rem;
@@ -133,6 +135,17 @@
 
 .auth-button.text + .auth-button.text {
   margin-top: 0;
+}
+
+.auth-credit {
+  margin: 1rem auto 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--color-text-secondary);
+}
+
+.auth-credit-link {
+  color: var(--color-primary);
 }
 
 #auth-qr-form {

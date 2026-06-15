@@ -90,7 +90,9 @@ import { sendApiUpdate } from '../updates/apiUpdateEmitter';
 import {
   applyState, updateChannelState,
 } from '../updates/updateManager';
-import { handleGramJsUpdate, invokeRequest, uploadFile } from './client';
+import {
+  handleGramJsUpdate, invokeRequest, isBotApiSession, uploadFile,
+} from './client';
 import { getPassword } from './twoFaSettings';
 
 type FullChatData = {
@@ -137,6 +139,10 @@ export async function fetchChats({
   withPinned?: boolean;
   lastLocalServiceMessageId?: number;
 }): Promise<ChatListData | undefined> {
+  if (isBotApiSession()) {
+    return buildEmptyChatListData(withPinned ? [] : undefined);
+  }
+
   const peer = (offsetPeer && buildInputPeer(offsetPeer.id, offsetPeer.accessHash)) || new GramJs.InputPeerEmpty();
   const result = await invokeRequest(new GramJs.messages.GetDialogs({
     hash: DEFAULT_PRIMITIVES.BIGINT,
@@ -495,6 +501,10 @@ export async function requestChatUpdate({
 }: {
   chat: ApiChat; lastLocalMessage?: ApiMessage; noLastMessage?: boolean;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const { id, accessHash } = chat;
 
   const result = await invokeRequest(new GramJs.messages.GetPeerDialogs({
@@ -1193,6 +1203,14 @@ export function toggleChatArchived({
 }
 
 export async function fetchChatFolders() {
+  if (isBotApiSession()) {
+    return {
+      byId: {},
+      orderedIds: [ALL_FOLDER_ID],
+      areTagsEnabled: false,
+    };
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetDialogFilters());
 
   if (!result) {
@@ -1221,6 +1239,15 @@ export async function fetchPinnedDialogs({
 }: {
   listType: ChatListType;
 }) {
+  if (isBotApiSession()) {
+    return {
+      dialogIds: [],
+      messages: [],
+      chats: [],
+      users: [],
+    };
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetPinnedDialogs({
     folderId: listType === 'archived' ? ARCHIVED_FOLDER_ID : ALL_FOLDER_ID,
   }));
@@ -1236,6 +1263,22 @@ export async function fetchPinnedDialogs({
     messages: messages.map((message) => buildApiMessage(message)).filter(Boolean),
     chats: chats.map((chat) => buildApiChatFromPreview(chat)).filter(Boolean),
     users: users.map((user) => buildApiUser(user)).filter(Boolean),
+  };
+}
+
+function buildEmptyChatListData(orderedPinnedIds?: string[]): ChatListData {
+  return {
+    chatIds: [],
+    chats: [],
+    users: [],
+    userStatusesById: {},
+    draftsById: {},
+    threadInfos: [],
+    orderedPinnedIds,
+    totalChatCount: 0,
+    messages: [],
+    notifyExceptionById: {},
+    lastMessageByChatId: {},
   };
 }
 

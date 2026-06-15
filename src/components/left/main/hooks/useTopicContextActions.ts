@@ -38,8 +38,9 @@ export default function useTopicContextActions({
 
   const preparedActions = useMemo(() => {
     const {
-      isPinned, notifySettings, isClosed, id: topicId,
+      isPinned, isClosed, id: topicId,
     } = topic;
+    const mutedUntil = topic.notifySettings?.mutedUntil;
 
     const chatId = chat.id;
 
@@ -92,7 +93,7 @@ export default function useTopicContextActions({
         handler: () => toggleTopicPinned({ chatId, topicId, isPinned: true }),
       }) : undefined;
 
-    const actionMute = ((isChatMuted && notifySettings.mutedUntil === undefined) || notifySettings.mutedUntil)
+    const actionMute = ((isChatMuted && mutedUntil === undefined) || mutedUntil)
       ? {
         title: oldLang('ChatList.Unmute'),
         icon: 'unmute',

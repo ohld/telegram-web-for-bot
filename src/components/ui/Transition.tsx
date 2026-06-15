@@ -179,34 +179,40 @@ function Transition({
     }
 
     const childElements = Array.from(container.children) as HTMLElement[];
-    childElements.forEach((el) => {
-      addExtraClass(el, CLASSES.slide);
+    function updateSlideBaseClasses() {
+      childElements.forEach((el) => {
+        addExtraClass(el, CLASSES.slide);
 
-      if (slideClassName) {
-        slideClassName.split(/\s+/).forEach((token) => {
-          addExtraClass(el, token);
-        });
-      }
-    });
+        if (slideClassName) {
+          slideClassName.split(/\s+/).forEach((token) => {
+            addExtraClass(el, token);
+          });
+        }
+      });
+    }
 
     if (!hasActiveKeyChanged) {
       if (isAnimatingRef.current) {
         return;
       }
 
-      childElements.forEach((childElement) => {
-        if (childElement === childNodes[activeIndex]) {
-          addExtraClass(childElement, CLASSES.active);
+      requestMutation(() => {
+        updateSlideBaseClasses();
 
-          if (isSlideOptimized) {
-            setExtraStyles(childElement, {
-              transition: 'none',
-              transform: 'translate3d(0, 0, 0)',
-            });
+        childElements.forEach((childElement) => {
+          if (childElement === childNodes[activeIndex]) {
+            addExtraClass(childElement, CLASSES.active);
+
+            if (isSlideOptimized) {
+              setExtraStyles(childElement, {
+                transition: 'none',
+                transform: 'translate3d(0, 0, 0)',
+              });
+            }
+          } else if (!isSlideOptimized) {
+            addExtraClass(childElement, CLASSES.inactive);
           }
-        } else if (!isSlideOptimized) {
-          addExtraClass(childElement, CLASSES.inactive);
-        }
+        });
       });
 
       return;
@@ -244,35 +250,43 @@ function Transition({
         isSwipeJustCancelledRef.current = false;
       }
 
-      childNodes.forEach((node, i) => {
-        if (node instanceof HTMLElement) {
-          removeExtraClass(node, CLASSES.from);
-          removeExtraClass(node, CLASSES.to);
-          toggleExtraClass(node, CLASSES.active, i === activeIndex);
-          toggleExtraClass(node, CLASSES.inactive, i !== activeIndex);
-        }
-      });
+      requestMutation(() => {
+        updateSlideBaseClasses();
 
-      cleanup();
+        childNodes.forEach((node, i) => {
+          if (node instanceof HTMLElement) {
+            removeExtraClass(node, CLASSES.from);
+            removeExtraClass(node, CLASSES.to);
+            toggleExtraClass(node, CLASSES.active, i === activeIndex);
+            toggleExtraClass(node, CLASSES.inactive, i !== activeIndex);
+          }
+        });
+
+        cleanup();
+      });
 
       return;
     }
-
-    childNodes.forEach((node, i) => {
-      if (node instanceof HTMLElement) {
-        removeExtraClass(node, CLASSES.active);
-        toggleExtraClass(node, CLASSES.from, i === prevActiveIndex);
-        toggleExtraClass(node, CLASSES.to, i === activeIndex);
-        toggleExtraClass(node, CLASSES.inactive, i !== prevActiveIndex && i !== activeIndex);
-      }
-    });
 
     isAnimatingRef.current = true;
     const endHeavyAnimation = beginHeavyAnimation(undefined, isBlockingAnimation);
     onStart?.();
 
-    toggleExtraClass(container, `Transition-${name}`, !isBackwards);
-    toggleExtraClass(container, `Transition-${name}Backwards`, isBackwards);
+    requestMutation(() => {
+      updateSlideBaseClasses();
+
+      childNodes.forEach((node, i) => {
+        if (node instanceof HTMLElement) {
+          removeExtraClass(node, CLASSES.active);
+          toggleExtraClass(node, CLASSES.from, i === prevActiveIndex);
+          toggleExtraClass(node, CLASSES.to, i === activeIndex);
+          toggleExtraClass(node, CLASSES.inactive, i !== prevActiveIndex && i !== activeIndex);
+        }
+      });
+
+      toggleExtraClass(container, `Transition-${name}`, !isBackwards);
+      toggleExtraClass(container, `Transition-${name}Backwards`, isBackwards);
+    });
 
     function onAnimationEnd() {
       const activeElement = container.querySelector<HTMLDivElement>(`.${CLASSES.active}`);
@@ -410,6 +424,7 @@ function Transition({
       id={id}
       className={buildClassName('Transition', className)}
       teactFastList={asFastList}
+      data-stricterdom-ignore=""
       data-tauri-drag-region={dataTauriDragRegion}
       onScroll={onScroll}
       onMouseDown={onMouseDown}
@@ -439,26 +454,28 @@ function performSlideOptimized(
   onStop?: NoneToVoidFunction,
 ) {
   if (shouldDisableAnimation) {
-    toggleExtraClass(container, `Transition-${name}`, !isBackwards);
-    toggleExtraClass(container, `Transition-${name}Backwards`, isBackwards);
+    requestMutation(() => {
+      toggleExtraClass(container, `Transition-${name}`, !isBackwards);
+      toggleExtraClass(container, `Transition-${name}Backwards`, isBackwards);
 
-    if (fromSlide instanceof HTMLElement) {
-      removeExtraClass(fromSlide, CLASSES.active);
-      setExtraStyles(fromSlide, {
-        transition: 'none',
-        transform: '',
-      });
-    }
+      if (fromSlide instanceof HTMLElement) {
+        removeExtraClass(fromSlide, CLASSES.active);
+        setExtraStyles(fromSlide, {
+          transition: 'none',
+          transform: '',
+        });
+      }
 
-    if (toSlide instanceof HTMLElement) {
-      addExtraClass(toSlide, CLASSES.active);
-      setExtraStyles(toSlide, {
-        transition: 'none',
-        transform: 'translate3d(0, 0, 0)',
-      });
-    }
+      if (toSlide instanceof HTMLElement) {
+        addExtraClass(toSlide, CLASSES.active);
+        setExtraStyles(toSlide, {
+          transition: 'none',
+          transform: 'translate3d(0, 0, 0)',
+        });
+      }
 
-    cleanup();
+      cleanup();
+    });
 
     return;
   }
@@ -471,22 +488,24 @@ function performSlideOptimized(
   const endHeavyAnimation = beginHeavyAnimation(undefined, isBlockingAnimation);
   onStart?.();
 
-  toggleExtraClass(container, `Transition-${name}`, !isBackwards);
-  toggleExtraClass(container, `Transition-${name}Backwards`, isBackwards);
+  requestMutation(() => {
+    toggleExtraClass(container, `Transition-${name}`, !isBackwards);
+    toggleExtraClass(container, `Transition-${name}Backwards`, isBackwards);
 
-  if (fromSlide instanceof HTMLElement) {
-    setExtraStyles(fromSlide, {
-      transition: 'none',
-      transform: 'translate3d(0, 0, 0)',
-    });
-  }
+    if (fromSlide instanceof HTMLElement) {
+      setExtraStyles(fromSlide, {
+        transition: 'none',
+        transform: 'translate3d(0, 0, 0)',
+      });
+    }
 
-  if (toSlide instanceof HTMLElement) {
-    setExtraStyles(toSlide, {
-      transition: 'none',
-      transform: `translate3d(${isBackwards ? '-' : ''}100%, 0, 0)`,
-    });
-  }
+    if (toSlide instanceof HTMLElement) {
+      setExtraStyles(toSlide, {
+        transition: 'none',
+        transform: `translate3d(${isBackwards ? '-' : ''}100%, 0, 0)`,
+      });
+    }
+  });
 
   requestForcedReflow(() => {
     if (toSlide instanceof HTMLElement) {

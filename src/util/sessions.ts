@@ -9,6 +9,10 @@ import {
 } from '../config';
 import { ACCOUNT_SLOT, storeAccountData, writeSlotSession } from './multiaccount';
 
+const BOT_AUTH_FLOOD_WAIT_UNTIL_KEY = 'bot_auth_flood_wait_until';
+const FLOOD_WAIT_ERROR_RE = /^FLOOD_WAIT_(\d+)$/;
+const SECOND_MS = 1000;
+
 export function hasStoredSession() {
   if (checkSessionLocked()) {
     return true;
@@ -37,6 +41,9 @@ export function storeSession(sessionData: ApiSessionData) {
   const {
     mainDcId, keys, isTest,
   } = sessionData;
+  if (!Object.keys(keys).length) {
+    return false;
+  }
 
   const currentSlotData = loadSlotSession(ACCOUNT_SLOT);
   const newSlotData: SharedSessionData = {
@@ -54,6 +61,7 @@ export function storeSession(sessionData: ApiSessionData) {
   }
 
   writeSlotSession(ACCOUNT_SLOT, newSlotData);
+  return true;
 }
 
 function storeLegacySession(sessionData: ApiSessionData, currentUserId?: string) {
@@ -116,7 +124,32 @@ export function loadStoredSession(): ApiSessionData | undefined {
     isTest: slotData.isTest || undefined,
   };
 
+  if (!Object.keys(sessionData.keys).length) {
+    return undefined;
+  }
+
   return sessionData;
+}
+
+export function loadStoredBotSession(): ApiSessionData | undefined {
+  const slotData = loadSlotSession(ACCOUNT_SLOT);
+  if (!slotData?.isBot || !slotData.botToken) return undefined;
+
+  const sessionData = loadStoredSession();
+  if (!sessionData?.keys[sessionData.mainDcId]) return undefined;
+
+  return sessionData;
+}
+
+export function loadStoredBotToken() {
+  const slotData = loadSlotSession(ACCOUNT_SLOT);
+  if (!slotData?.isBot || !slotData.botToken) return undefined;
+
+  return slotData.botToken;
+}
+
+export function hasStoredBotSession() {
+  return Boolean(loadStoredBotSession());
 }
 
 function loadStoredLegacySession(): ApiSessionData | undefined {
@@ -170,6 +203,48 @@ export function updateSessionUserId(currentUserId: string) {
   const slotData = loadSlotSession(ACCOUNT_SLOT);
   if (!slotData) return;
   storeAccountData(ACCOUNT_SLOT, { userId: currentUserId });
+}
+
+export function storeBotSessionInfo(botToken?: string) {
+  const slotData = loadSlotSession(ACCOUNT_SLOT);
+  if (!slotData) return false;
+
+  writeSlotSession(ACCOUNT_SLOT, {
+    ...slotData,
+    isBot: true,
+    botToken: botToken || slotData.botToken,
+  });
+
+  return true;
+}
+
+export function parseFloodWaitSeconds(errorCode?: string) {
+  const match = errorCode?.match(FLOOD_WAIT_ERROR_RE);
+  if (!match) return undefined;
+
+  return Number(match[1]);
+}
+
+export function storeBotAuthFloodWait(seconds: number) {
+  const waitUntil = Date.now() + seconds * SECOND_MS;
+  localStorage.setItem(BOT_AUTH_FLOOD_WAIT_UNTIL_KEY, String(waitUntil));
+}
+
+export function getBotAuthFloodWaitSeconds() {
+  const waitUntil = Number(localStorage.getItem(BOT_AUTH_FLOOD_WAIT_UNTIL_KEY));
+  if (!waitUntil) return undefined;
+
+  const remainingSeconds = Math.ceil((waitUntil - Date.now()) / SECOND_MS);
+  if (remainingSeconds <= 0) {
+    clearBotAuthFloodWait();
+    return undefined;
+  }
+
+  return remainingSeconds;
+}
+
+export function clearBotAuthFloodWait() {
+  localStorage.removeItem(BOT_AUTH_FLOOD_WAIT_UNTIL_KEY);
 }
 
 export function importTestSession() {

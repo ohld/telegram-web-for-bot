@@ -13,7 +13,7 @@ import { buildApiTopicWithState } from '../apiBuilders/forums';
 import { buildApiMessage, buildMessageDraft } from '../apiBuilders/messages';
 import { buildInputPeer, DEFAULT_PRIMITIVES } from '../gramjsBuilders';
 import { processAffectedHistory } from '../updates/updateManager';
-import { invokeRequest } from './client';
+import { invokeRequest, isBotApiSession } from './client';
 
 export async function createTopic({
   chat, title, iconColor, iconEmojiId, sendAs, isTitleMissing,
@@ -63,6 +63,10 @@ export async function fetchTopics({
   shouldOrderByCreateDate?: boolean;
   draftsById: Record<number, ApiDraft | undefined>;
 } | undefined> {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const { id, accessHash } = chat;
 
   const result = await invokeRequest(new GramJs.messages.GetForumTopics({
@@ -107,6 +111,10 @@ export async function fetchTopicById({
   topic: ApiTopicWithState;
   messages: ApiMessage[];
 } | undefined> {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const { id, accessHash } = chat;
 
   const result = await invokeRequest(new GramJs.messages.GetForumTopicsByID({

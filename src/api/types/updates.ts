@@ -57,6 +57,7 @@ export type ApiUpdateReady = {
 
 export type ApiUpdateAuthorizationStateType = (
   'authorizationStateLoggingOut' |
+  'authorizationStateWaitBotToken' |
   'authorizationStateWaitPhoneNumber' |
   'authorizationStateWaitCode' |
   'authorizationStateWaitPassword' |

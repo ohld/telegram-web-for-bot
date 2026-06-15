@@ -10,7 +10,7 @@ import type {
   PasswordResult,
   TmpPasswordResult,
   TwoFaParams } from './2fa';
-import type { UserAuthParams } from './auth';
+import type { BotAuthParams, UserAuthParams } from './auth';
 import type { DownloadFileParams, DownloadFileWithDcParams, DownloadMediaParams } from './downloadFile';
 import type { UploadFileParams } from './uploadFile';
 
@@ -78,6 +78,7 @@ type TelegramClientParams = {
   shouldAllowHttpTransport: boolean;
   shouldForceHttpTransport: boolean;
   shouldDebugExportedSenders: boolean;
+  shouldPreconnectMediaSender: boolean;
 };
 
 type TimeoutId = ReturnType<typeof setTimeout>;
@@ -142,6 +143,7 @@ class TelegramClient {
     shouldAllowHttpTransport: false,
     shouldForceHttpTransport: false,
     shouldDebugExportedSenders: false,
+    shouldPreconnectMediaSender: true,
   };
 
   private _args: TelegramClientParams;
@@ -161,6 +163,8 @@ class TelegramClient {
   private _shouldAllowHttpTransport: boolean;
 
   private _shouldDebugExportedSenders: boolean;
+
+  private _shouldPreconnectMediaSender: boolean;
 
   _log: Logger;
 
@@ -199,6 +203,7 @@ class TelegramClient {
   private _destroyed = false;
   private _connectedDeferred = new Deferred();
   private pingCallback?: () => Promise<void>;
+  private botAuthToken?: string;
 
   private _initWith: (x: unknown) => Api.InvokeWithLayer;
 
@@ -222,6 +227,7 @@ class TelegramClient {
     this._shouldForceHttpTransport = args.shouldForceHttpTransport;
     this._shouldAllowHttpTransport = args.shouldAllowHttpTransport;
     this._shouldDebugExportedSenders = args.shouldDebugExportedSenders;
+    this._shouldPreconnectMediaSender = args.shouldPreconnectMediaSender;
     // this._entityCache = new Set()
     if (typeof args.baseLogger === 'string') {
       this._log = new Logger();
@@ -347,9 +353,11 @@ class TelegramClient {
     this._connectedDeferred.resolve();
     this._isSwitchingDc = false;
 
-    // Prepare file connection on current DC to speed up initial media loading
-    const mediaSender = await this._borrowExportedSender(this.session.dcId, false, undefined, 0, this.isPremium);
-    if (mediaSender) this.releaseExportedSender(mediaSender);
+    if (this._shouldPreconnectMediaSender) {
+      // Prepare file connection on current DC to speed up initial media loading
+      const mediaSender = await this._borrowExportedSender(this.session.dcId, false, undefined, 0, this.isPremium);
+      if (mediaSender) this.releaseExportedSender(mediaSender);
+    }
   }
 
   async _initSession() {
@@ -368,6 +376,10 @@ class TelegramClient {
     this.pingCallback = callback;
   }
 
+  setBotAuthToken(botAuthToken?: string) {
+    this.botAuthToken = botAuthToken;
+  }
+
   async setForceHttpTransport(forceHttpTransport: boolean) {
     this._shouldForceHttpTransport = forceHttpTransport;
     this.disconnect();
@@ -377,6 +389,17 @@ class TelegramClient {
 
   async setAllowHttpTransport(allowHttpTransport: boolean) {
     this._shouldAllowHttpTransport = allowHttpTransport;
+    this.disconnect();
+    this._sender = undefined;
+    await this.connect();
+  }
+
+  async resetAuthKey() {
+    if (this._sender) {
+      await this._sender.authKey.setKey(undefined);
+    }
+
+    this.session.setAuthKey(undefined);
     this.disconnect();
     this._sender = undefined;
     await this.connect();
@@ -580,10 +603,11 @@ class TelegramClient {
         await this._waitingForAuthKey[dcId];
 
         const authKey = this.session.getAuthKey(dcId);
+        const authKeyBuffer = authKey?.getKey();
 
-        hasAuthKey = Boolean(sender.authKey?.getKey());
-        if (hasAuthKey) {
-          await sender.authKey.setKey(authKey.getKey());
+        hasAuthKey = Boolean(authKeyBuffer);
+        if (authKeyBuffer) {
+          await sender.authKey.setKey(authKeyBuffer);
         }
       } else {
         this._waitingForAuthKey[dcId] = new Promise((resolve) => {
@@ -614,18 +638,7 @@ class TelegramClient {
         }));
 
         if (this.session.dcId !== dcId && !sender._authenticated) {
-          // Prevent another connection from trying to export the auth key while we're doing it
-          await navigator.locks.request('GRAMJS_AUTH_EXPORT', async () => {
-            this._log.info(`Exporting authorization for data center ${dc.ipAddress}`);
-            const auth = await this.invoke(new Api.auth.ExportAuthorization({ dcId }));
-
-            const req = this._initWith(new Api.auth.ImportAuthorization({
-              id: auth.id,
-              bytes: auth.bytes,
-            }));
-            await sender.send(req);
-            sender._authenticated = true;
-          });
+          await this.authorizeForeignSender(sender, dcId, dc.ipAddress);
         }
 
         sender._dcId = dcId;
@@ -643,6 +656,16 @@ class TelegramClient {
 
         return sender;
       } catch (err: any) {
+        if (this.isFatalBotForeignAuthorizationError(err, dcId)) {
+          this.session.setAuthKey(undefined, dcId);
+          if (firstConnectResolver) {
+            firstConnectResolver();
+            delete this._waitingForAuthKey[dcId];
+          }
+          sender.disconnect();
+          throw err;
+        }
+
         if (this._shouldDebugExportedSenders) {
           // eslint-disable-next-line no-console
           console.error(`☠️ ERROR! idx=${index} dcId=${dcId} ${err.message}`);
@@ -654,6 +677,27 @@ class TelegramClient {
         sender.disconnect();
       }
     }
+  }
+
+  private async authorizeForeignSender(sender: MTProtoSender, dcId: number, ipAddress: string) {
+    // Prevent another connection from trying to export the auth key while we're doing it
+    await navigator.locks.request('GRAMJS_AUTH_EXPORT', async () => {
+      if (sender._authenticated) return;
+
+      this._log.info(`Exporting authorization for data center ${ipAddress}`);
+      const auth = await this.invoke(new Api.auth.ExportAuthorization({ dcId }));
+
+      const req = this._initWith(new Api.auth.ImportAuthorization({
+        id: auth.id,
+        bytes: auth.bytes,
+      }));
+      await sender.send(req);
+      sender._authenticated = true;
+    });
+  }
+
+  private isFatalBotForeignAuthorizationError(err: unknown, dcId: number) {
+    return this.session.dcId !== dcId && Boolean(this.botAuthToken) && err instanceof RPCError;
   }
 
   releaseExportedSender(sender: MTProtoSender) {
@@ -718,6 +762,12 @@ class TelegramClient {
         }
       }
     } catch (err) {
+      if (this.isFatalBotForeignAuthorizationError(err, dcId)) {
+        delete this._exportedSenderPromises[dcId][i];
+        delete this._exportedSenderRefCounter[dcId][i];
+        throw err;
+      }
+
       // eslint-disable-next-line no-console
       console.error(err);
 
@@ -731,9 +781,13 @@ class TelegramClient {
       this._exportedSenderReleaseTimeouts[dcId][i] = undefined;
     }
 
-    if (shouldAnnounceLayer) {
+    if (shouldAnnounceLayer && sender) {
       // Dummy request to let DC know about our API layer
-      sender.send(this._initWith(new Api.help.GetConfig()));
+      const announcePromise = sender.send(this._initWith(new Api.help.GetConfig()));
+      announcePromise?.catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        this._log.warn(`Failed to announce API layer: ${message}`);
+      });
     }
 
     return sender;
@@ -1160,6 +1214,12 @@ class TelegramClient {
           this._log.warn(`Telegram is having internal issues ${e.constructor.name}`);
           await sleep(2000);
         } else if (e instanceof FloodWaitError || e instanceof FloodTestPhoneWaitError) {
+          if (request instanceof Api.auth.ImportBotAuthorization) {
+            state.finished.resolve();
+            if (isExported) this.releaseExportedSender(sender);
+            throw e;
+          }
+
           if (e.seconds <= this.floodSleepLimit) {
             this._log.info(`Sleeping for ${e.seconds}s on flood wait`);
             await sleep(e.seconds * 1000);
@@ -1246,13 +1306,20 @@ class TelegramClient {
     }
   }
 
-  async start(authParams: UserAuthParams, onConnected?: NoneToVoidFunction) {
+  loadConfigAsync() {
+    void this.loadConfig().catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      this._log.warn(`Failed to load config: ${message}`);
+    });
+  }
+
+  async start(authParams: UserAuthParams | BotAuthParams, onConnected?: NoneToVoidFunction) {
     if (!this.isConnected()) {
       await this.connect();
     }
     onConnected?.();
 
-    this.loadConfig();
+    this.loadConfigAsync();
 
     if (await checkAuthorization(this, authParams.shouldThrowIfUnauthorized)) {
       return;

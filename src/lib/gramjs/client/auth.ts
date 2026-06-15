@@ -36,7 +36,9 @@ export interface UserAuthParams {
 }
 
 export interface BotAuthParams {
-  botAuthToken: string;
+  botAuthToken: string | (() => Promise<string>);
+  onError?: (err: Error) => void;
+  shouldThrowIfUnauthorized?: boolean;
 }
 
 interface ApiCredentials {
@@ -44,8 +46,11 @@ interface ApiCredentials {
   apiHash: string;
 }
 
+type BotAuthorizationParams = ConstructorParameters<typeof Api.auth.ImportBotAuthorization>[0];
+
 type AuthMethod = 'phoneNumber' | 'qrCode';
 const DEFAULT_INITIAL_METHOD: AuthMethod = 'phoneNumber';
+const BOT_AUTH_TIMEOUT_MS = 30000;
 let lastUsedMethod: AuthMethod = DEFAULT_INITIAL_METHOD;
 
 export async function authFlow(
@@ -101,7 +106,10 @@ export async function checkAuthorization(client: TelegramClient, shouldThrow = f
     await client.invoke(new Api.updates.GetState());
     return true;
   } catch (err: unknown) {
-    if ((err instanceof Error && err.message === 'Disconnect') || shouldThrow) throw err;
+    if (isAuthCheckTransportError(err) || shouldThrow) throw err;
+    if (isAuthKeyInvalidError(err)) {
+      await client.resetAuthKey();
+    }
     return false;
   }
 }
@@ -525,15 +533,129 @@ async function signInWithPassword(
   return undefined!; // Never reached (TypeScript fix)
 }
 
-async function signInBot(client: TelegramClient, apiCredentials: ApiCredentials, authParams: BotAuthParams) {
+async function signInBot(
+  client: TelegramClient, apiCredentials: ApiCredentials, authParams: BotAuthParams,
+): Promise<Api.TypeUser> {
   const { apiId, apiHash } = apiCredentials;
-  const { botAuthToken } = authParams;
 
-  const { user } = await client.invoke(new Api.auth.ImportBotAuthorization({
-    apiId,
-    apiHash,
-    botAuthToken,
-  })) as Api.auth.Authorization;
+  // eslint-disable-next-line no-constant-condition
+  while (1) {
+    try {
+      const botAuthToken = typeof authParams.botAuthToken === 'function'
+        ? await authParams.botAuthToken()
+        : authParams.botAuthToken;
 
-  return user;
+      if (!botAuthToken) {
+        throw new Error('Bot token is empty');
+      }
+
+      const authorization = await importBotAuthorizationWithTimeout(client, {
+        apiId,
+        apiHash,
+        botAuthToken,
+      });
+      if (!(authorization instanceof Api.auth.Authorization) || !(authorization.user instanceof Api.User)
+        || !authorization.user.bot) {
+        throw new Error('BOT_TOKEN_INVALID');
+      }
+
+      client.setBotAuthToken(botAuthToken);
+      return authorization.user;
+    } catch (err: unknown) {
+      if (typeof authParams.botAuthToken !== 'function') {
+        throw err;
+      }
+
+      if (isAuthCheckTransportError(err)) {
+        const user = await client.getMe();
+        if (user) {
+          return user;
+        }
+      }
+
+      if (isFloodWaitError(err)) {
+        if (err instanceof Error) {
+          authParams.onError?.(err);
+        }
+
+        continue;
+      }
+
+      if (err instanceof Error) {
+        authParams.onError?.(err);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  return undefined!; // Never reached (TypeScript fix)
+}
+
+async function importBotAuthorizationWithTimeout(
+  client: TelegramClient,
+  params: BotAuthorizationParams,
+) {
+  const abortController = new AbortController();
+  let didTimeOut = false;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const importPromise = client.invoke(
+    new Api.auth.ImportBotAuthorization(params),
+    undefined,
+    abortController.signal,
+  ).catch((err) => {
+    if (didTimeOut) return undefined;
+    throw err;
+  });
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      didTimeOut = true;
+      abortController.abort();
+      reject(new Error('TIMEOUT'));
+    }, BOT_AUTH_TIMEOUT_MS);
+  });
+
+  try {
+    const result = await Promise.race([importPromise, timeoutPromise]);
+    if (!result) {
+      throw new Error('TIMEOUT');
+    }
+
+    return result as Api.auth.Authorization;
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+function isFloodWaitError(err: unknown) {
+  return err instanceof RPCError && err.errorMessage.startsWith('FLOOD_WAIT');
+}
+
+function isAuthKeyInvalidError(err: unknown) {
+  return err instanceof RPCError && [
+    'AUTH_KEY_INVALID',
+    'AUTH_KEY_UNREGISTERED',
+    'SESSION_EXPIRED',
+    'SESSION_REVOKED',
+  ].includes(err.errorMessage);
+}
+
+function isAuthCheckTransportError(err: unknown) {
+  if (!(err instanceof Error)) {
+    return false;
+  }
+
+  return [
+    'Cannot send requests while disconnected',
+    'Connection failed',
+    'Disconnect',
+    'HttpStream was closed',
+    'Not connected',
+    'TIMEOUT',
+    'WebSocket connection timeout',
+    'WebSocket was closed',
+  ].includes(err.message);
 }

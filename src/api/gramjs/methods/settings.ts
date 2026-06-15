@@ -57,7 +57,9 @@ import {
 import { buildInputPasskeyCredential } from '../gramjsBuilders/passkeys';
 import { addPhotoToLocalDb } from '../helpers/localDb';
 import localDb from '../localDb';
-import { getClient, invokeRequest, uploadFile } from './client';
+import {
+  getClient, invokeRequest, isBotApiSession, uploadFile,
+} from './client';
 
 const BETA_LANG_CODES = ['ar', 'fa', 'id', 'ko', 'uz', 'en'];
 
@@ -294,6 +296,10 @@ export function unblockUser({
 }
 
 export async function fetchAuthorizations() {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.account.GetAuthorizations());
   if (!result) {
     return undefined;
@@ -428,6 +434,10 @@ export async function fetchLangPack({
   langPack: string;
   langCode: string;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.langpack.GetLangPack({
     langPack,
     langCode,
@@ -454,6 +464,10 @@ export async function fetchLangDifference({
   langCode: string;
   fromVersion: number;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.langpack.GetDifference({
     langPack,
     langCode,
@@ -473,6 +487,10 @@ export async function fetchLangDifference({
 }
 
 export async function fetchLanguages(): Promise<ApiLanguage[] | undefined> {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.langpack.GetLanguages({
     langPack: LANG_PACK,
   }));
@@ -490,6 +508,10 @@ export async function fetchLanguage({
   langPack: string;
   langCode: string;
 }): Promise<ApiLanguage | undefined> {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.langpack.GetLanguage({
     langPack,
     langCode,
@@ -510,6 +532,10 @@ export async function fetchLangStrings({
   langCode: string;
   keys: string[];
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.langpack.GetStrings({
     langPack,
     langCode,
@@ -526,6 +552,10 @@ export async function oldFetchLangPack({ sourceLangPacks, langCode }: {
   sourceLangPacks: typeof LANG_PACKS;
   langCode: string;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const results = await Promise.all(sourceLangPacks.map((langPack) => {
     return invokeRequest(new GramJs.langpack.GetLangPack({
       langPack,
@@ -542,6 +572,10 @@ export async function oldFetchLangPack({ sourceLangPacks, langCode }: {
 }
 
 export async function fetchPrivacySettings(privacyKey: ApiPrivacyKey) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const key = buildInputPrivacyKey(privacyKey);
   if (!key) return undefined;
 
@@ -557,6 +591,10 @@ export async function fetchPrivacySettings(privacyKey: ApiPrivacyKey) {
 }
 
 export function registerDevice(token: string) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const client = getClient();
   const secret = client.session.getAuthKey().getKey()!;
   return invokeRequest(new GramJs.account.RegisterDevice({
@@ -569,6 +607,10 @@ export function registerDevice(token: string) {
 }
 
 export function unregisterDevice(token: string) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   return invokeRequest(new GramJs.account.UnregisterDevice({
     tokenType: 10,
     otherUids: [],
@@ -579,6 +621,10 @@ export function unregisterDevice(token: string) {
 export async function setPrivacySettings(
   privacyKey: ApiPrivacyKey, rules: ApiInputPrivacyRules,
 ) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const key = buildInputPrivacyKey(privacyKey);
   const privacyRules = buildInputPrivacyRules(rules);
   if (!key) return undefined;
@@ -595,10 +641,18 @@ export async function setPrivacySettings(
 }
 
 export async function updateIsOnline(isOnline: boolean) {
+  if (isBotApiSession()) {
+    return;
+  }
+
   await invokeRequest(new GramJs.account.UpdateStatus({ offline: !isOnline }));
 }
 
 export async function fetchContentSettings() {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.account.GetContentSettings());
   if (!result) {
     return undefined;
@@ -611,12 +665,20 @@ export async function fetchContentSettings() {
 }
 
 export function updateContentSettings(isEnabled: boolean) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   return invokeRequest(new GramJs.account.SetContentSettings({
     sensitiveEnabled: isEnabled || undefined,
   }));
 }
 
 export async function fetchPeerColors(hash?: number) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.help.GetPeerColors({
     hash: hash ?? DEFAULT_PRIMITIVES.INT,
   }));
@@ -634,6 +696,10 @@ export async function fetchPeerColors(hash?: number) {
 }
 
 export async function fetchPeerProfileColors(hash?: number) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.help.GetPeerProfileColors({
     hash: hash ?? DEFAULT_PRIMITIVES.INT,
   }));
@@ -665,6 +731,10 @@ export async function fetchTimezones(hash?: number) {
 }
 
 export async function fetchCountryList({ langCode = 'en' }: { langCode?: string }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const countryList = await invokeRequest(new GramJs.help.GetCountriesList({
     langCode,
     hash: DEFAULT_PRIMITIVES.INT,
@@ -677,6 +747,10 @@ export async function fetchCountryList({ langCode = 'en' }: { langCode?: string 
 }
 
 export async function fetchGlobalPrivacySettings() {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.account.GetGlobalPrivacySettings());
 
   if (!result) {
@@ -708,6 +782,10 @@ export async function updateGlobalPrivacySettings({
   shouldDisplayGiftsButton?: boolean;
   disallowedGifts?: ApiDisallowedGiftsSettings;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.account.SetGlobalPrivacySettings({
     settings: new GramJs.GlobalPrivacySettings({
       ...(shouldArchiveAndMuteNewNonContact && { archiveAndMuteNewNoncontactPeers: true }),

@@ -13,7 +13,12 @@ import type {
 import type { IAnchorPosition } from '../../../../types';
 
 import {
-  canSendReaction, getReactionKey, isSameReaction, sortReactions,
+  buildLocalAvailableReaction,
+  canSendReaction,
+  DEFAULT_REACTIONS,
+  getReactionKey,
+  isSameReaction,
+  sortReactions,
 } from '../../../../global/helpers';
 import buildClassName, { createClassNameBuilder } from '../../../../util/buildClassName';
 
@@ -96,23 +101,25 @@ const ReactionSelector: FC<OwnProps> = ({
       if (isForEffects) return effectReactions;
       if (isInSavedMessages) return defaultTagReactions;
       if (enabledReactions?.type === 'some') return enabledReactions.allowed;
+      if ((isPrivate || enabledReactions?.type === 'all') && !allAvailableReactions?.length) return DEFAULT_REACTIONS;
       return allAvailableReactions?.map((reaction) => reaction.reaction);
     })();
 
     const filteredReactions: RenderableReactions = reactions?.map((reaction) => {
       const isCustomReaction = reaction.type === 'custom';
       const availableReaction = allAvailableReactions?.find((r) => isSameReaction(r.reaction, reaction));
+      const renderableReaction = availableReaction || buildLocalAvailableReaction(reaction);
 
       if (isForEffects) return availableReaction;
 
-      if ((!isCustomReaction && !availableReaction) || availableReaction?.isInactive) return undefined;
+      if ((!isCustomReaction && !renderableReaction) || renderableReaction?.isInactive) return undefined;
 
       if (!isPrivate && !shouldUseCurrentReactions
         && (!enabledReactions || !canSendReaction(reaction, enabledReactions))) {
         return undefined;
       }
 
-      return isCustomReaction ? reaction : availableReaction;
+      return isCustomReaction ? reaction : renderableReaction;
     }).filter(Boolean) || [];
 
     const sortedReactions = sortReactions(filteredReactions, topReactions);

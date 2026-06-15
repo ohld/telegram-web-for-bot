@@ -33,10 +33,23 @@ const ReactionSelectorReaction: FC<OwnProps> = ({
   isLocked,
   onToggleReaction,
 }) => {
-  const mediaAppearData = useMedia(`sticker${reaction.appearAnimation?.id}`, !isReady || noAppearAnimation);
-  const mediaData = useMedia(`document${reaction.selectAnimation?.id}`, !isReady || noAppearAnimation);
-  const staticIconData = useMedia(`document${reaction.staticIcon?.id}`, !noAppearAnimation);
+  const appearAnimationId = reaction.appearAnimation?.id;
+  const selectAnimationId = reaction.selectAnimation?.id;
+  const staticIconId = reaction.staticIcon?.id;
+  const mediaAppearData = useMedia(
+    appearAnimationId ? `sticker${appearAnimationId}` : undefined,
+    !isReady || noAppearAnimation,
+  );
+  const mediaData = useMedia(
+    selectAnimationId ? `document${selectAnimationId}` : undefined,
+    !isReady || noAppearAnimation,
+  );
+  const staticIconData = useMedia(staticIconId ? `document${staticIconId}` : undefined, !noAppearAnimation);
   const [isAnimationLoaded, markAnimationLoaded] = useFlag();
+  const shouldRenderFallbackEmoji = reaction.reaction.type === 'emoji'
+    && !reaction.appearAnimation
+    && !reaction.selectAnimation
+    && !reaction.staticIcon;
 
   const [isFirstPlay, , unmarkIsFirstPlay] = useFlag(true);
   const [isActivated, activate, deactivate] = useFlag();
@@ -51,7 +64,9 @@ const ReactionSelectorReaction: FC<OwnProps> = ({
       onClick={handleClick}
       onMouseEnter={isReady && !isFirstPlay ? activate : undefined}
     >
-      {noAppearAnimation && (
+      {shouldRenderFallbackEmoji ? (
+        <span className={styles.fallbackEmoji}>{reaction.reaction.emoticon}</span>
+      ) : noAppearAnimation && (
         <img
           className={styles.staticIcon}
           src={staticIconData}
@@ -59,9 +74,9 @@ const ReactionSelectorReaction: FC<OwnProps> = ({
           draggable={false}
         />
       )}
-      {!isAnimationLoaded && !noAppearAnimation && (
+      {!shouldRenderFallbackEmoji && !isAnimationLoaded && !noAppearAnimation && (
         <AnimatedSticker
-          key={reaction.appearAnimation?.id}
+          key={appearAnimationId}
           tgsUrl={mediaAppearData}
           play={isFirstPlay}
           noLoop
@@ -70,9 +85,9 @@ const ReactionSelectorReaction: FC<OwnProps> = ({
           forceAlways
         />
       )}
-      {!isFirstPlay && !noAppearAnimation && (
+      {!shouldRenderFallbackEmoji && !isFirstPlay && !noAppearAnimation && (
         <AnimatedSticker
-          key={reaction.selectAnimation?.id}
+          key={selectAnimationId}
           tgsUrl={mediaData}
           play={isActivated}
           noLoop

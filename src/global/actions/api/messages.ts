@@ -68,11 +68,13 @@ import {
   groupMessageIdsByThreadId,
   isChatChannel,
   isChatSuperGroup,
+  isCurrentUserBot,
   isDeletedUser,
   isMessageLocal,
   isServiceNotificationMessage,
   isUserBot,
   isUserRightBanned,
+  orderHistoryIds,
   splitMessagesForForwarding,
 } from '../../helpers';
 import { isChatAdmin } from '../../helpers/chats';
@@ -125,6 +127,7 @@ import {
   selectChatFullInfo,
   selectChatLastMessageId,
   selectChatMessage,
+  selectChatMessages,
   selectCurrentChat,
   selectCurrentMessageList,
   selectCurrentViewedStory,
@@ -179,6 +182,9 @@ const AUTOLOGIN_TOKEN_KEY = 'autologin_token';
 const uploadProgressCallbacks = new Map<MessageKey, ApiOnProgress>();
 
 const runDebouncedForMarkRead = debounce((cb) => cb(), 500, false);
+const BOT_CHANNEL_HISTORY_PAGE_SIZE = 20;
+const botChannelHistoryRequestKeys = new Set<string>();
+const botChannelHistoryEmptyPageKeys = new Set<string>();
 
 addActionHandler('loadViewportMessages', (global, actions, payload): ActionReturnType => {
   const {
@@ -214,6 +220,21 @@ addActionHandler('loadViewportMessages', (global, actions, payload): ActionRetur
 
   const viewportIds = selectViewportIds(global, chatId, threadId, tabId);
   const listedIds = selectListedIds(global, chatId, threadId);
+  if (isCurrentUserBot(global)) {
+    const result = updateBotLocalViewport(global, chatId, threadId, direction, tabId);
+    global = result.global;
+
+    if (!isBudgetPreload && shouldLoadBotChannelHistory(chat, threadId, result)) {
+      onTickEnd(() => {
+        void loadBotChannelViewportMessages(chat, threadId, direction, result.offsetId, tabId, onLoaded);
+      });
+    } else {
+      onLoaded?.();
+    }
+
+    setGlobal(global, { forceOnHeavyAnimation: shouldForceRender });
+    return;
+  }
 
   if (!viewportIds || !viewportIds.length || direction === LoadMoreDirection.Around) {
     const offsetId = !forceLastSlice ? (
@@ -294,6 +315,172 @@ addActionHandler('loadViewportMessages', (global, actions, payload): ActionRetur
 
   setGlobal(global, { forceOnHeavyAnimation: shouldForceRender });
 });
+
+function updateBotLocalViewport<T extends GlobalState>(
+  global: T,
+  chatId: string,
+  threadId: ThreadId,
+  direction: LoadMoreDirection,
+  tabId: number,
+) {
+  const historyIds = selectBotLocalHistoryIds(global, chatId, threadId);
+  if (!historyIds.length) {
+    return {
+      global,
+      historyIds,
+      areAllLocal: false,
+    };
+  }
+
+  global = updateListedIds(global, chatId, threadId, historyIds);
+
+  const viewportIds = selectViewportIds(global, chatId, threadId, tabId);
+  const offsetId = direction === LoadMoreDirection.Around
+    ? selectFocusedMessageId(global, chatId, tabId) || selectRealLastReadId(global, chatId, threadId)
+    : direction === LoadMoreDirection.Backwards ? viewportIds?.[0] : viewportIds?.[viewportIds.length - 1];
+  const { newViewportIds, areAllLocal } = getViewportSlice(historyIds, offsetId, direction);
+  global = safeReplaceViewportIds(global, chatId, threadId, newViewportIds, tabId);
+
+  return {
+    global,
+    historyIds,
+    offsetId,
+    areAllLocal,
+  };
+}
+
+function selectBotLocalHistoryIds<T extends GlobalState>(
+  global: T, chatId: string, threadId: ThreadId,
+) {
+  const listedIds = selectListedIds(global, chatId, threadId);
+  if (listedIds?.length) {
+    return listedIds;
+  }
+
+  const messagesById = selectChatMessages(global, chatId);
+  if (!messagesById) {
+    return [];
+  }
+
+  const messageIds = Object.values(messagesById)
+    .filter((message) => selectThreadIdFromMessage(global, message) === threadId)
+    .map(({ id }) => id);
+
+  return orderHistoryIds(messageIds);
+}
+
+function shouldLoadBotChannelHistory(
+  chat: ApiChat,
+  threadId: ThreadId,
+  result: {
+    historyIds: number[];
+    offsetId?: number;
+    areAllLocal: boolean;
+  },
+) {
+  return !result.areAllLocal
+    && threadId === MAIN_THREAD_ID
+    && (isChatChannel(chat) || isChatSuperGroup(chat));
+}
+
+async function loadBotChannelViewportMessages(
+  chat: ApiChat,
+  threadId: ThreadId,
+  direction: LoadMoreDirection,
+  offsetId: number | undefined,
+  tabId: number,
+  onLoaded?: NoneToVoidFunction,
+) {
+  let global = getGlobal();
+  const chatId = chat.id;
+  const historyIds = selectBotLocalHistoryIds(global, chatId, threadId);
+  const anchorId = getBotChannelHistoryAnchorId(global, chatId, direction, offsetId, historyIds);
+  if (!anchorId || isLocalMessageId(anchorId)) {
+    onLoaded?.();
+    return;
+  }
+
+  const messageIds = buildBotChannelHistoryMessageIds(anchorId, direction);
+  if (!messageIds.length) {
+    onLoaded?.();
+    return;
+  }
+
+  const requestKey = getBotChannelHistoryRequestKey(chatId, direction, anchorId);
+  if (botChannelHistoryRequestKeys.has(requestKey) || botChannelHistoryEmptyPageKeys.has(requestKey)) {
+    onLoaded?.();
+    return;
+  }
+
+  botChannelHistoryRequestKeys.add(requestKey);
+  const messages = await callApi('fetchMessagesById', {
+    chat,
+    messageIds,
+  }).catch(() => undefined);
+  botChannelHistoryRequestKeys.delete(requestKey);
+
+  if (!messages?.length) {
+    botChannelHistoryEmptyPageKeys.add(requestKey);
+    onLoaded?.();
+    return;
+  }
+
+  global = getGlobal();
+  const ids = messages.map(({ id }) => id);
+  global = addChatMessagesById(global, chatId, buildCollectionByKey(messages, 'id'));
+  global = updateListedIds(global, chatId, threadId, ids);
+
+  const listedIds = selectListedIds(global, chatId, threadId);
+  if (listedIds?.length) {
+    const { newViewportIds } = getViewportSlice(listedIds, offsetId, direction);
+    global = safeReplaceViewportIds(global, chatId, threadId, newViewportIds, tabId);
+  }
+
+  setGlobal(global);
+  onLoaded?.();
+}
+
+function getBotChannelHistoryAnchorId<T extends GlobalState>(
+  global: T,
+  chatId: string,
+  direction: LoadMoreDirection,
+  offsetId: number | undefined,
+  historyIds: number[],
+) {
+  if (offsetId) {
+    return offsetId;
+  }
+
+  if (direction === LoadMoreDirection.Backwards) {
+    return historyIds[0];
+  }
+
+  if (direction === LoadMoreDirection.Forwards) {
+    return historyIds[historyIds.length - 1];
+  }
+
+  return selectChatLastMessageId(global, chatId) || historyIds[historyIds.length - 1];
+}
+
+function buildBotChannelHistoryMessageIds(anchorId: number, direction: LoadMoreDirection) {
+  const isForwards = direction === LoadMoreDirection.Forwards;
+  const messageIds: number[] = [];
+
+  for (let i = 1; i <= BOT_CHANNEL_HISTORY_PAGE_SIZE; i++) {
+    const id = isForwards ? anchorId + i : anchorId - i;
+    if (id <= 0) {
+      break;
+    }
+
+    messageIds.push(id);
+  }
+
+  return messageIds;
+}
+
+function getBotChannelHistoryRequestKey(chatId: string, direction: LoadMoreDirection, anchorId: number) {
+  return `${chatId}-${direction}-${anchorId}`;
+}
 
 async function loadWithBudget<T extends GlobalState>(
   global: T,
@@ -2991,7 +3178,7 @@ addActionHandler('summarizeMessage', async (global, actions, payload): Promise<v
   setGlobal(global);
 });
 
-// https://github.com/telegramdesktop/tdesktop/blob/11906297d82b6ff57b277da5251d2e6eb3d8b6d0/Telegram/SourceFiles/api/api_views.cpp#L22
+// Based on Telegram Desktop view batching
 const SEND_VIEWS_TIMEOUT = 1000;
 let viewsIncrementTimeout: number | undefined;
 let idsToIncrementViews: Record<string, Set<number>> = {};
@@ -3012,8 +3199,10 @@ function incrementViews() {
 addActionHandler('scheduleForViewsIncrement', (global, actions, payload): ActionReturnType => {
   const { ids, chatId } = payload;
 
+  if (isCurrentUserBot(global)) return;
+
   if (!viewsIncrementTimeout) {
-    setTimeout(incrementViews, SEND_VIEWS_TIMEOUT);
+    viewsIncrementTimeout = window.setTimeout(incrementViews, SEND_VIEWS_TIMEOUT);
   }
 
   if (!idsToIncrementViews[chatId]) {
@@ -3028,6 +3217,7 @@ addActionHandler('scheduleForViewsIncrement', (global, actions, payload): Action
 addActionHandler('loadMessageViews', async (global, actions, payload): Promise<void> => {
   const { chatId, ids, shouldIncrement } = payload;
 
+  if (isCurrentUserBot(global)) return;
   if (selectIsCurrentUserFrozen(global)) return;
 
   const chat = selectChat(global, chatId);

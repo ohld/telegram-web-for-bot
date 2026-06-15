@@ -151,13 +151,31 @@ onmessage = ({ data }: OriginMessageEvent) => {
 function handleErrors() {
   self.onerror = (e) => {
     console.error(e);
-    sendToOrigin({ type: 'unhandledError', error: { message: e.error.message || 'Uncaught exception in worker' } });
+    sendToOrigin({
+      type: 'unhandledError',
+      error: { message: getUnhandledErrorMessage(e.error, 'Uncaught exception in worker') },
+    });
   };
 
   self.addEventListener('unhandledrejection', (e) => {
     console.error(e);
-    sendToOrigin({ type: 'unhandledError', error: { message: e.reason.message || 'Uncaught rejection in worker' } });
+    sendToOrigin({
+      type: 'unhandledError',
+      error: { message: getUnhandledErrorMessage(e.reason, 'Uncaught rejection in worker') },
+    });
   });
+}
+
+function getUnhandledErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) {
+    return error.message || fallback;
+  }
+
+  if (typeof error === 'string') {
+    return error || fallback;
+  }
+
+  return fallback;
 }
 
 const sendToOriginOnTickEnd = throttleWithTickEnd(() => {

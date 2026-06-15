@@ -9,7 +9,7 @@ import { DARK_THEME_BG_COLOR, INACTIVE_MARKER, LIGHT_THEME_BG_COLOR, PAGE_TITLE,
 import { forceMutation } from '../lib/fasterdom/stricterdom.ts';
 import { selectActionMessageBg, selectTabState, selectTheme } from '../global/selectors';
 import { IS_TAURI } from '../util/browser/globalEnvironment';
-import { IS_INSTALL_PROMPT_SUPPORTED, PLATFORM_ENV } from '../util/browser/windowEnvironment';
+import { IS_INSTALL_PROMPT_SUPPORTED } from '../util/browser/windowEnvironment';
 import buildClassName from '../util/buildClassName';
 import { setupBeforeInstallPrompt } from '../util/installPrompt';
 import { ACCOUNT_SLOT, getAccountsInfo, getAccountSlotUrl } from '../util/multiaccount';
@@ -68,7 +68,6 @@ const App = ({
   actionMessageBg,
 }: StateProps) => {
   const { isMobile } = useAppLayout();
-  const isMobileOs = PLATFORM_ENV === 'iOS' || PLATFORM_ENV === 'Android';
 
   useEffect(() => {
     if (IS_INSTALL_PROMPT_SUPPORTED) {
@@ -142,6 +141,10 @@ const App = ({
     activeKey = AppScreens.lock;
   } else if (authState) {
     switch (authState) {
+      case 'authorizationStateWaitBotToken':
+        page = 'authBotToken';
+        activeKey = AppScreens.auth;
+        break;
       case 'authorizationStateWaitPhoneNumber':
         page = 'authPhoneNumber';
         activeKey = AppScreens.auth;
@@ -175,7 +178,7 @@ const App = ({
   } else if (hasPasscode) {
     activeKey = AppScreens.lock;
   } else {
-    page = isMobileOs ? 'authPhoneNumber' : 'authQrCode';
+    page = 'authBotToken';
     activeKey = AppScreens.auth;
   }
 

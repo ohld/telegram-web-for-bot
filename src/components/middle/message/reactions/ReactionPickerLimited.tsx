@@ -12,10 +12,13 @@ import type {
 } from '../../../../api/types';
 
 import {
-  getReactionKey, sortReactions,
+  DEFAULT_REACTIONS,
+  getReactionKey,
+  sortReactions,
 } from '../../../../global/helpers';
 import { selectChatFullInfo } from '../../../../global/selectors';
 import buildClassName from '../../../../util/buildClassName';
+import { isUserId } from '../../../../util/entities/ids';
 import { REM } from '../../../common/helpers/mediaDimensions';
 
 import useAppLayout from '../../../../hooks/useAppLayout';
@@ -39,6 +42,7 @@ type StateProps = {
   availableReactions?: ApiAvailableReaction[];
   topReactions: ApiReaction[];
   isWithPaidReaction?: boolean;
+  isPrivate?: boolean;
   reactionsLimit?: number;
 };
 
@@ -57,6 +61,7 @@ const ReactionPickerLimited: FC<OwnProps & StateProps> = ({
   topReactions,
   selectedReactionIds,
   isWithPaidReaction,
+  isPrivate,
   message,
   reactionsLimit,
   onReactionSelect,
@@ -82,11 +87,21 @@ const ReactionPickerLimited: FC<OwnProps & StateProps> = ({
     }
 
     if (!enabledReactions) {
+      if (isPrivate) {
+        const reactionsToSort: ApiReactionWithPaid[] = DEFAULT_REACTIONS.slice();
+        if (isWithPaidReaction) {
+          reactionsToSort.unshift({ type: 'paid' });
+        }
+        return sortReactions(reactionsToSort, topReactions);
+      }
+
       return [];
     }
 
     if (enabledReactions.type === 'all') {
-      const reactionsToSort: ApiReactionWithPaid[] = (availableReactions || []).map(({ reaction }) => reaction);
+      const reactionsToSort: ApiReactionWithPaid[] = availableReactions?.length
+        ? availableReactions.map(({ reaction }) => reaction)
+        : DEFAULT_REACTIONS.slice();
       if (isWithPaidReaction) {
         reactionsToSort.unshift({ type: 'paid' });
       }
@@ -101,6 +116,7 @@ const ReactionPickerLimited: FC<OwnProps & StateProps> = ({
     return sortReactions(reactionsToSort, topReactions);
   }, [
     availableReactions, enabledReactions, topReactions, shouldUseCurrentReactions, currentReactions, isWithPaidReaction,
+    isPrivate,
   ]);
 
   const pickerHeight = useMemo(() => {
@@ -157,6 +173,7 @@ export default memo(withGlobal<OwnProps>(
       enabledReactions,
       availableReactions,
       topReactions,
+      isPrivate: isUserId(chatId),
       reactionsLimit: maxUniqueReactions,
       isWithPaidReaction: isPaidReactionAvailable,
     };

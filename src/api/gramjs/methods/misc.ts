@@ -5,9 +5,13 @@ import type { ApiAppConfig, ApiConfig, ApiPromoData } from '../../types';
 import { buildAppConfig } from '../apiBuilders/appConfig';
 import { buildApiConfig, buildApiPromoData } from '../apiBuilders/misc';
 import { DEFAULT_PRIMITIVES } from '../gramjsBuilders';
-import { invokeRequest } from './client';
+import { invokeRequest, isBotApiSession } from './client';
 
 export async function fetchAppConfig({ hash }: { hash?: number }): Promise<ApiAppConfig | undefined> {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.help.GetAppConfig({ hash: hash ?? DEFAULT_PRIMITIVES.INT }));
   if (!result || result instanceof GramJs.help.AppConfigNotModified) return undefined;
 

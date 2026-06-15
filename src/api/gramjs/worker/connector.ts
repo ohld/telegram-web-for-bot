@@ -28,6 +28,16 @@ type EnsurePromise<T> = Promise<Awaited<T>>;
 const HEALTH_CHECK_TIMEOUT = 150;
 const HEALTH_CHECK_MIN_DELAY = 5 * 1000; // 5 sec
 const NO_QUEUE_BEFORE_INIT = new Set(['destroy']);
+const CALL_BEFORE_INIT = new Set<keyof Methods>([
+  'provideAuthPhoneNumber',
+  'provideAuthBotToken',
+  'provideAuthCode',
+  'provideAuthPassword',
+  'provideAuthRegistration',
+  'restartAuth',
+  'restartAuthWithQr',
+  'restartAuthWithPasskey',
+]);
 
 let worker: Worker | undefined;
 
@@ -209,6 +219,14 @@ export function callApi<T extends keyof Methods>(fnName: T, ...args: MethodArgs<
       return Promise.resolve(undefined) as EnsurePromise<MethodResponse<T>>;
     }
 
+    if (CALL_BEFORE_INIT.has(fnName)) {
+      return makeRequest({
+        type: 'callMethod',
+        name: fnName,
+        args,
+      }) as EnsurePromise<MethodResponse<T>>;
+    }
+
     const deferred = new Deferred();
     apiRequestsQueue.push({ fnName, args, deferred });
 
@@ -299,7 +317,7 @@ function subscribeToWorker(onUpdate: OnApiUpdate) {
       } else if (payload.type === 'methodCallback') {
         handleMethodCallback(payload);
       } else if (payload.type === 'unhandledError') {
-        const message = payload.error?.message;
+        const message = payload.error?.message || 'Uncaught error in worker';
         if (message && IGNORE_UNHANDLED_ERRORS.has(message)) return;
         throw new Error(message);
       } else if (payload.type === 'sendBeacon') {

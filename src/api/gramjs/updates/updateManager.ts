@@ -25,6 +25,18 @@ export type State = {
 };
 type SeqUpdate = (GramJs.Updates | GramJs.UpdatesCombined) & { _isFromDifference?: true };
 type PtsUpdate = ((GramJs.TypeUpdate & { pts: number }) | UpdatePts) & { _isFromDifference?: true };
+type EntityUpdate = Update & { _entities?: Entity[] };
+type QtsUpdate = Update & { qts: number };
+type BotDifferenceScanState = {
+  pts: number;
+  qts: number;
+  date: number;
+};
+type BotDifferenceScanStats = {
+  iterations: number;
+  messages: number;
+  tooLong: number;
+};
 type ChannelDifferenceReason = 'gapRecovery' | 'shortpoll';
 type ChannelScheduler = {
   timeout?: ReturnType<typeof setTimeout>;
@@ -36,14 +48,28 @@ type ChannelScheduler = {
 };
 
 const COMMON_BOX_QUEUE_ID = '0';
+const INITIAL_CHANNEL_PTS = 1;
 
 const SHORTPOLL_CHANNEL_DIFFERENCE_LIMIT = 100;
 const CATCH_UP_CHANNEL_DIFFERENCE_LIMIT = 1000;
 
 const SHORTPOLL_DEFAULT_TIMEOUT_MS = 1000;
-const INITIAL_SHORTPOLL_TIMEOUT_MS = 10000;
+const OPENED_CHANNEL_INITIAL_DIFFERENCE_TIMEOUT_MS = 0;
+const CHANNEL_DIFFERENCE_ENTITY_RETRY_TIMEOUT_MS = 1000;
 const CHANNEL_DIFFERENCE_RETRY_TIMEOUT_MS = 5000;
+const CHANNEL_DIFFERENCE_BACKOFF_TIMEOUT_MS = 60000;
+const CHANNEL_DIFFERENCE_MAX_PAGES = 4;
+const CHANNEL_DIFFERENCE_MAX_RUNTIME_MS = 10000;
 const UPDATE_WAIT_TIMEOUT = 500;
+const BOT_INITIAL_DIFFERENCE_DATE = 1;
+const BOT_INITIAL_DIFFERENCE_PTS = 1;
+const BOT_INITIAL_DIFFERENCE_QTS = -1;
+const BOT_INITIAL_DIFFERENCE_LIMIT = 1000;
+const BOT_INITIAL_DIFFERENCE_MAX_ITERATIONS = 16;
+const BOT_INITIAL_DIFFERENCE_MAX_MESSAGES = 1000;
+const BOT_INITIAL_DIFFERENCE_MAX_RUNTIME_MS = 15000;
+const BOT_INITIAL_DIFFERENCE_MAX_TOO_LONG_RESETS = 1;
+const FLOOD_WAIT_ERROR_RE = /^FLOOD_WAIT_(\d+)$/;
 
 const TERMINAL_CHANNEL_DIFFERENCE_ERRORS = new Set([
   'CHANNEL_INVALID',
@@ -60,11 +86,15 @@ const OPENED_CHANNEL_IDS = new Set<string>();
 const SEQ_QUEUE = new SortedQueue<SeqUpdate>(seqComparator);
 const PTS_QUEUE = new Map<string, SortedQueue<PtsUpdate>>();
 
-export async function init(invokeReq: typeof invokeRequest) {
+export async function init(invokeReq: typeof invokeRequest, shouldScanInitialBotDifference = false) {
   invoke = invokeReq;
 
   await loadRemoteState();
   isInited = true;
+
+  if (shouldScanInitialBotDifference) {
+    await scanInitialBotDifference();
+  }
 
   scheduleGetDifference();
 }
@@ -117,6 +147,7 @@ export function processUpdate(update: Update, isFromDifference?: boolean, should
     return;
   }
 
+  updateQts(update);
   updater(update);
 }
 
@@ -224,13 +255,14 @@ function popPtsQueue(channelId: string) {
   const pts = update.pts;
   const ptsCount = getPtsCount(update);
 
-  // Sometimes server sends updates for channels that are opened in other clients. We ignore them
+  // Bot updates can discover a channel message before local channel state is initialized
   if (localPts === undefined) {
-    if (DEBUG) {
-      // Uncomment to debug missing updates
-
-      // console.error('[UpdateManager] Got pts update without local state', channelId);
+    if (canSeedChannelPtsFromUpdate(channelId, update)) {
+      applyUpdate(update);
+      popPtsQueue(channelId);
+      return;
     }
+
     return;
   }
 
@@ -284,7 +316,7 @@ export function setOpenedChannelIds(channelIds: string[]) {
       if (scheduler.shortpollTimeoutMs !== undefined) {
         restartShortpollFromNow(channelId);
       } else {
-        scheduleChannelDifference(channelId, 'shortpoll', INITIAL_SHORTPOLL_TIMEOUT_MS);
+        scheduleChannelDifference(channelId, 'shortpoll', OPENED_CHANNEL_INITIAL_DIFFERENCE_TIMEOUT_MS);
       }
     }
   });
@@ -368,9 +400,15 @@ function restartShortpollFromNow(channelId: string) {
 function scheduleGetDifference() {
   if (seqTimeout) return;
 
-  seqTimeout = setTimeout(async () => {
-    await getDifference();
-    seqTimeout = undefined;
+  seqTimeout = setTimeout(() => {
+    void getDifference().catch((err: unknown) => {
+      if (DEBUG) {
+        // eslint-disable-next-line no-console
+        console.warn('[UpdatesManager] Failed to get Difference', err);
+      }
+    }).finally(() => {
+      seqTimeout = undefined;
+    });
   }, UPDATE_WAIT_TIMEOUT);
 }
 
@@ -389,7 +427,7 @@ function getUpdateChannelId(update: Update) {
 
 export async function getDifference() {
   if (!isInited) {
-    throw new Error('UpdatesManager not initialized');
+    return;
   }
 
   if (!localDb.commonBoxState?.date) {
@@ -402,41 +440,40 @@ export async function getDifference() {
     isFetching: true,
   });
 
-  const response = await invoke(new GramJs.updates.GetDifference({
-    pts: localDb.commonBoxState.pts,
-    date: localDb.commonBoxState.date,
-    qts: localDb.commonBoxState.qts,
-  }));
+  try {
+    while (true) {
+      const response = await invoke(new GramJs.updates.GetDifference({
+        pts: localDb.commonBoxState.pts,
+        date: localDb.commonBoxState.date,
+        qts: localDb.commonBoxState.qts,
+      }));
 
-  if (!response || response instanceof GramJs.updates.DifferenceTooLong) {
-    forceSync();
-    return;
-  }
+      if (!response || response instanceof GramJs.updates.DifferenceTooLong) {
+        forceSync();
+        return;
+      }
 
-  if (response instanceof GramJs.updates.DifferenceEmpty) {
-    localDb.commonBoxState.seq = response.seq;
-    localDb.commonBoxState.date = response.date;
+      if (response instanceof GramJs.updates.DifferenceEmpty) {
+        localDb.commonBoxState.seq = response.seq;
+        localDb.commonBoxState.date = response.date;
+        return;
+      }
+
+      processDifference(response);
+
+      const newState = response instanceof GramJs.updates.DifferenceSlice ? response.intermediateState : response.state;
+      applyState(newState);
+
+      if (!(response instanceof GramJs.updates.DifferenceSlice)) {
+        return;
+      }
+    }
+  } finally {
     sendApiUpdate({
       '@type': 'updateFetchingDifference',
       isFetching: false,
     });
-    return;
   }
-
-  processDifference(response);
-
-  const newState = response instanceof GramJs.updates.DifferenceSlice ? response.intermediateState : response.state;
-  applyState(newState);
-
-  if (response instanceof GramJs.updates.DifferenceSlice) {
-    getDifference();
-    return;
-  }
-
-  sendApiUpdate({
-    '@type': 'updateFetchingDifference',
-    isFetching: false,
-  });
 }
 
 async function runChannelDifference(channelId: string, reason: ChannelDifferenceReason) {
@@ -449,20 +486,25 @@ async function runChannelDifference(channelId: string, reason: ChannelDifference
   scheduler.reason = reason;
 
   try {
-    await requestChannelDifferenceInternal(channelId, reason);
+    await requestChannelDifferenceInternal(channelId, reason, 0, Date.now() + CHANNEL_DIFFERENCE_MAX_RUNTIME_MS);
   } finally {
     scheduler.isInFlight = false;
   }
 }
 
-async function requestChannelDifferenceInternal(channelId: string, reason: ChannelDifferenceReason): Promise<void> {
+async function requestChannelDifferenceInternal(
+  channelId: string, reason: ChannelDifferenceReason, pageCount: number, deadline: number,
+): Promise<void> {
   const channel = localDb.chats[channelId];
-  if (
-    !channel
-    || !(channel instanceof GramJs.Channel)
-    || !channel.accessHash
-    || localDb.channelPtsById[channelId] === undefined
-  ) {
+  if (!channel) {
+    const scheduler = getOrCreateChannelScheduler(channelId);
+    if (scheduler.isShortpollEligible) {
+      scheduleChannelDifference(channelId, reason, CHANNEL_DIFFERENCE_ENTITY_RETRY_TIMEOUT_MS);
+    }
+    return;
+  }
+
+  if (!(channel instanceof GramJs.Channel) || !channel.accessHash) {
     if (DEBUG) {
       // eslint-disable-next-line no-console
       console.error('[UpdateManager] Channel for difference not found', channelId, channel);
@@ -471,12 +513,13 @@ async function requestChannelDifferenceInternal(channelId: string, reason: Chann
   }
 
   const limit = reason === 'shortpoll' ? SHORTPOLL_CHANNEL_DIFFERENCE_LIMIT : CATCH_UP_CHANNEL_DIFFERENCE_LIMIT;
+  const localPts = getChannelDifferencePts(channelId);
   let response: GramJs.updates.TypeChannelDifference;
 
   try {
     const result = await invoke(new GramJs.updates.GetChannelDifference({
       channel: buildInputChannel(channelId, channel.accessHash.toString()),
-      pts: localDb.channelPtsById[channelId],
+      pts: localPts,
       filter: new GramJs.ChannelMessagesFilterEmpty(),
       limit,
     }), {
@@ -493,7 +536,7 @@ async function requestChannelDifferenceInternal(channelId: string, reason: Chann
   }
 
   if (response instanceof GramJs.updates.ChannelDifferenceTooLong) {
-    forceSync();
+    handleChannelDifferenceTooLong(channelId, reason, response);
     return;
   }
 
@@ -512,7 +555,12 @@ async function requestChannelDifferenceInternal(channelId: string, reason: Chann
   processDifference(response, channelId);
 
   if (!response.final) {
-    await requestChannelDifferenceInternal(channelId, 'gapRecovery');
+    if (pageCount + 1 >= CHANNEL_DIFFERENCE_MAX_PAGES || Date.now() >= deadline) {
+      scheduleChannelDifference(channelId, 'gapRecovery', CHANNEL_DIFFERENCE_BACKOFF_TIMEOUT_MS);
+      return;
+    }
+
+    await requestChannelDifferenceInternal(channelId, 'gapRecovery', pageCount + 1, deadline);
     return;
   }
 
@@ -550,7 +598,12 @@ function handleChannelDifferenceError(channelId: string, reason: ChannelDifferen
     return;
   }
 
-  scheduleChannelDifference(channelId, reason, CHANNEL_DIFFERENCE_RETRY_TIMEOUT_MS);
+  const floodWaitSeconds = parseFloodWaitSeconds(errorMessage);
+  const retryTimeoutMs = floodWaitSeconds
+    ? floodWaitSeconds * 1000
+    : CHANNEL_DIFFERENCE_RETRY_TIMEOUT_MS;
+
+  scheduleChannelDifference(channelId, reason, retryTimeoutMs);
 }
 
 function forceSync() {
@@ -560,7 +613,12 @@ function forceSync() {
     '@type': 'requestSync',
   });
 
-  loadRemoteState();
+  void loadRemoteState().catch((err: unknown) => {
+    if (DEBUG) {
+      // eslint-disable-next-line no-console
+      console.warn('[UpdatesManager] Failed to reload remote state', err);
+    }
+  });
 }
 
 export function reset() {
@@ -612,21 +670,16 @@ function processDifference(
   difference: GramJs.updates.Difference | GramJs.updates.DifferenceSlice | GramJs.updates.ChannelDifference,
   channelId?: string,
 ) {
-  difference.newMessages.forEach((message) => {
-    updater(new GramJs.UpdateNewMessage({
-      message,
-      pts: 0,
-      ptsCount: 0,
-    }));
-  });
-
-  processAndUpdateEntities(difference);
+  processDifferenceMessages(difference);
+  const entities = getDifferenceEntities(difference);
 
   // Ignore `pts`/`seq` holes when applying updates from difference
   // BUT, if we got an `UpdateChannelTooLong`, make sure to process other updates after receiving `ChannelDifference`
   const channelTooLongIds = new Set<string>();
 
   difference.otherUpdates.forEach((update) => {
+    (update as EntityUpdate)._entities = entities;
+
     const updateChannelId = getUpdateChannelId(update);
 
     if (update instanceof GramJs.UpdateChannelTooLong) {
@@ -645,8 +698,208 @@ function processDifference(
   }
 }
 
+function processDifferenceMessages(
+  difference: GramJs.updates.Difference | GramJs.updates.DifferenceSlice | GramJs.updates.ChannelDifference,
+) {
+  processAndUpdateEntities(difference);
+  const entities = getDifferenceEntities(difference);
+
+  difference.newMessages.forEach((message) => {
+    if (message instanceof GramJs.MessageEmpty) {
+      return;
+    }
+
+    const update: EntityUpdate = message.peerId instanceof GramJs.PeerChannel
+      ? new GramJs.UpdateNewChannelMessage({
+        message,
+        pts: 0,
+        ptsCount: 0,
+      })
+      : new GramJs.UpdateNewMessage({
+        message,
+        pts: 0,
+        ptsCount: 0,
+      });
+
+    update._entities = entities;
+    updater(update);
+  });
+}
+
+function handleChannelDifferenceTooLong(
+  channelId: string, reason: ChannelDifferenceReason, difference: GramJs.updates.ChannelDifferenceTooLong,
+) {
+  processAndUpdateEntities(difference);
+  const entities = (difference.users as Entity[]).concat(difference.chats);
+
+  difference.messages.forEach((message) => {
+    if (message instanceof GramJs.MessageEmpty) {
+      return;
+    }
+
+    const update: EntityUpdate = new GramJs.UpdateNewChannelMessage({
+      message,
+      pts: 0,
+      ptsCount: 0,
+    });
+
+    update._entities = entities;
+    updater(update);
+  });
+
+  if (difference.dialog instanceof GramJs.Dialog && difference.dialog.pts !== undefined) {
+    localDb.channelPtsById[channelId] = difference.dialog.pts;
+  }
+
+  updateChannelShortpollTimeout(channelId, difference);
+  popPtsQueue(channelId);
+
+  if (difference.final) {
+    scheduleShortpollIfEligible(channelId);
+    return;
+  }
+
+  const scheduler = getOrCreateChannelScheduler(channelId);
+  const retryTimeoutMs = scheduler.isShortpollEligible
+    ? (scheduler.shortpollTimeoutMs ?? SHORTPOLL_DEFAULT_TIMEOUT_MS)
+    : CHANNEL_DIFFERENCE_BACKOFF_TIMEOUT_MS;
+
+  scheduleChannelDifference(channelId, reason, retryTimeoutMs);
+}
+
+async function scanInitialBotDifference() {
+  const deadline = Date.now() + BOT_INITIAL_DIFFERENCE_MAX_RUNTIME_MS;
+  const stats: BotDifferenceScanStats = {
+    iterations: 0,
+    messages: 0,
+    tooLong: 0,
+  };
+  let state: BotDifferenceScanState = {
+    pts: BOT_INITIAL_DIFFERENCE_PTS,
+    date: BOT_INITIAL_DIFFERENCE_DATE,
+    qts: BOT_INITIAL_DIFFERENCE_QTS,
+  };
+
+  while (shouldContinueBotDifferenceScan(stats, deadline)) {
+    stats.iterations++;
+
+    const response = await requestBotDifference(state).catch((err: unknown) => {
+      if (isFloodWaitRpcError(err)) {
+        return undefined;
+      }
+
+      throw err;
+    });
+
+    if (!response) {
+      break;
+    }
+
+    if (response instanceof GramJs.updates.DifferenceTooLong) {
+      stats.tooLong++;
+
+      if (stats.tooLong > BOT_INITIAL_DIFFERENCE_MAX_TOO_LONG_RESETS) {
+        break;
+      }
+
+      state = {
+        pts: response.pts,
+        date: localDb.commonBoxState.date ?? BOT_INITIAL_DIFFERENCE_DATE,
+        qts: localDb.commonBoxState.qts ?? BOT_INITIAL_DIFFERENCE_QTS,
+      };
+      continue;
+    }
+
+    if (response instanceof GramJs.updates.DifferenceEmpty) {
+      break;
+    }
+
+    stats.messages += response.newMessages.length;
+    processDifference(response);
+
+    const nextState = response instanceof GramJs.updates.DifferenceSlice
+      ? response.intermediateState
+      : response.state;
+
+    state = {
+      pts: nextState.pts,
+      date: nextState.date,
+      qts: nextState.qts,
+    };
+
+    if (!(response instanceof GramJs.updates.DifferenceSlice)) {
+      break;
+    }
+  }
+}
+
+function shouldContinueBotDifferenceScan(stats: BotDifferenceScanStats, deadline: number) {
+  return Date.now() < deadline
+    && stats.iterations < BOT_INITIAL_DIFFERENCE_MAX_ITERATIONS
+    && stats.messages < BOT_INITIAL_DIFFERENCE_MAX_MESSAGES;
+}
+
+function requestBotDifference(state: BotDifferenceScanState) {
+  return invoke(new GramJs.updates.GetDifference({
+    pts: state.pts,
+    date: state.date,
+    qts: state.qts,
+    ptsTotalLimit: BOT_INITIAL_DIFFERENCE_LIMIT,
+  }));
+}
+
+function getDifferenceEntities(
+  difference: GramJs.updates.Difference | GramJs.updates.DifferenceSlice | GramJs.updates.ChannelDifference,
+) {
+  return (difference.users as Entity[]).concat(difference.chats);
+}
+
 function getPtsCount(update: PtsUpdate) {
   return 'ptsCount' in update ? update.ptsCount : 0;
+}
+
+function getChannelDifferencePts(channelId: string) {
+  const pts = localDb.channelPtsById[channelId];
+  return typeof pts === 'number' && pts > 0 ? pts : INITIAL_CHANNEL_PTS;
+}
+
+function updateQts(update: Update) {
+  if (!('qts' in update)) {
+    return;
+  }
+
+  const { qts } = update as QtsUpdate;
+  if (qts > (localDb.commonBoxState.qts ?? 0)) {
+    localDb.commonBoxState.qts = qts;
+  }
+}
+
+function canSeedChannelPtsFromUpdate(channelId: string, update: PtsUpdate) {
+  if (channelId === COMMON_BOX_QUEUE_ID) {
+    return false;
+  }
+
+  if (update._isFromDifference || localDb.chats[channelId]) {
+    return true;
+  }
+
+  return Boolean((update as EntityUpdate)._entities?.some((entity) => {
+    return (
+      (entity instanceof GramJs.Channel || entity instanceof GramJs.ChannelForbidden)
+      && buildApiPeerId(entity.id, 'channel') === channelId
+    );
+  }));
+}
+
+function parseFloodWaitSeconds(errorMessage?: string) {
+  const match = errorMessage?.match(FLOOD_WAIT_ERROR_RE);
+  if (!match) return undefined;
+
+  return Number(match[1]);
+}
+
+function isFloodWaitRpcError(err: unknown): err is RPCError {
+  return err instanceof RPCError && parseFloodWaitSeconds(err.errorMessage) !== undefined;
 }
 
 function seqComparator(a: SeqUpdate, b: SeqUpdate) {

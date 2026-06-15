@@ -36,7 +36,8 @@ import {
   serializeBytes,
 } from '../helpers/misc';
 import localDb from '../localDb';
-import { handleGramJsUpdate, invokeRequest } from './client';
+import { getBotApiPremiumGiftCodeOptions } from './botApi';
+import { handleGramJsUpdate, invokeRequest, isBotApiSession } from './client';
 import { getTemporaryPaymentPassword } from './twoFaSettings';
 
 type SendPaymentFormResult = {
@@ -285,6 +286,10 @@ export async function fetchBoostStatus({
 }: {
   chat: ApiChat;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.premium.GetBoostsStatus({
     peer: buildInputPeer(chat.id, chat.accessHash),
   }));
@@ -381,6 +386,10 @@ export async function getPremiumGiftCodeOptions({
 }: {
   chat?: ApiChat;
 }) {
+  if (isBotApiSession()) {
+    return getBotApiPremiumGiftCodeOptions();
+  }
+
   const result = await invokeRequest(new GramJs.payments.GetPremiumGiftCodeOptions({
     boostPeer: chat && buildInputPeer(chat.id, chat.accessHash),
   }));

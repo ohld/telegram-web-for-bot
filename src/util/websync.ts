@@ -36,40 +36,52 @@ export const forceWebsync = (authed: boolean) => {
   const { canRedirect, ts } = JSON.parse(localStorage.getItem(WEBSYNC_KEY) || '{}');
 
   if (canRedirect !== authed || ts + WEBSYNC_TIMEOUT <= currentTs) {
-    return Promise.all(WEBSYNC_URLS.map((url) => {
-      return new Promise<void>((resolve, reject) => {
-        const script = document.createElement('script');
-
-        const removeElement = () => Boolean(document.body.removeChild(script));
-
-        script.src = url + new URLSearchParams({
-          authed: Number(authed).toString(),
-          version: WEBSYNC_VERSION,
-        }).toString();
-
-        document.body.appendChild(script);
-
-        script.onload = () => {
-          saveSync(authed);
-          removeElement();
-          if (lastTimeout) {
-            clearTimeout(lastTimeout);
-            lastTimeout = undefined;
-          }
-          startWebsync();
-          resolve();
-        };
-
-        script.onerror = () => {
-          removeElement();
-          reject();
-        };
+    return Promise.all(WEBSYNC_URLS.map((url) => loadWebsyncUrl(url, authed)))
+      .then(() => {
+        saveSync(authed);
+        resetWebsyncTimeout();
+        startWebsync();
       });
-    }));
   } else {
     return Promise.resolve();
   }
 };
+
+function loadWebsyncUrl(url: string, authed: boolean) {
+  return new Promise<void>((resolve) => {
+    const script = document.createElement('script');
+
+    const removeElement = () => {
+      script.remove();
+    };
+
+    script.src = url + new URLSearchParams({
+      authed: Number(authed).toString(),
+      version: WEBSYNC_VERSION,
+    }).toString();
+
+    document.body.appendChild(script);
+
+    script.onload = () => {
+      removeElement();
+      resolve();
+    };
+
+    script.onerror = () => {
+      removeElement();
+      resolve();
+    };
+  });
+}
+
+function resetWebsyncTimeout() {
+  if (!lastTimeout) {
+    return;
+  }
+
+  clearTimeout(lastTimeout);
+  lastTimeout = undefined;
+}
 
 export function stopWebsync() {
   if (DEBUG || IS_TAURI) return;
