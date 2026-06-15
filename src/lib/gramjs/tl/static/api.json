@@ -318,6 +318,7 @@
     "channels.toggleAutotranslation",
     "channels.setMainProfileTab",
     "bots.getBotRecommendations",
+    "bots.sendCustomRequest",
     "bots.canSendMessage",
     "bots.allowSendMessage",
     "bots.invokeWebViewCustomMethod",

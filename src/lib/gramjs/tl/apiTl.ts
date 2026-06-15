@@ -1895,6 +1895,7 @@ channels.updatePaidMessagesPrice#4b12327b flags:# broadcast_messages_allowed:fla
 channels.toggleAutotranslation#167fc0a1 channel:InputChannel enabled:Bool = Updates;
 channels.checkSearchPostsFlood#22567115 flags:# query:flags.0?string = SearchPostsFlood;
 channels.setMainProfileTab#3583fcb1 channel:InputChannel tab:ProfileTab = Bool;
+bots.sendCustomRequest#aa2769ed custom_method:string params:DataJSON = DataJSON;
 bots.setBotInfo#10cf3123 flags:# bot:flags.2?InputUser lang_code:string name:flags.3?string about:flags.0?string description:flags.1?string = Bool;
 bots.canSendMessage#1359f4e6 bot:InputUser = Bool;
 bots.allowSendMessage#f132e3ef bot:InputUser = Updates;

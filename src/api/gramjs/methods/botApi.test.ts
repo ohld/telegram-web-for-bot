@@ -1,6 +1,19 @@
+import GramJs from '../../../lib/gramjs/tl/api';
+
 import { buildApiStarGiftFromBotApiGift } from '../apiBuilders/botApi';
 
 type TestBotApiGift = Parameters<typeof buildApiStarGiftFromBotApiGift>[0];
+
+describe('Bot API bridge transport', () => {
+  it('keeps `bots.sendCustomRequest` available at runtime', () => {
+    expect(GramJs.bots.SendCustomRequest).toEqual(expect.any(Function));
+
+    expect(() => new GramJs.bots.SendCustomRequest({
+      customMethod: 'getMe',
+      params: new GramJs.DataJSON({ data: '{}' }),
+    })).not.toThrow();
+  });
+});
 
 describe('buildApiStarGiftFromBotApiGift', () => {
   it('maps sendable bot gifts to regular star gifts', () => {
