@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 
-import template from '../.github/workflows/statoscope-comment.js';
 import createPRComment from './createPRComment.js';
+import template from './statoscopeCommentTemplate.js';
 
 export default async ({ github, context }) => {
   const data = JSON.parse(readFileSync('result.json', 'utf8'));

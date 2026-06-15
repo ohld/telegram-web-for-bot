@@ -29,7 +29,7 @@ import {
   getAllMessageMediaHashes,
   getMessageStatefulContent,
   groupMessageIdsByThreadId,
-  hasMessageTtl, isMediaLoadableInViewer, mergeIdRanges, orderHistoryIds, orderPinnedIds,
+  hasMessageTtl, isCurrentUserBot, isMediaLoadableInViewer, mergeIdRanges, orderHistoryIds, orderPinnedIds,
 } from '../helpers';
 import { getEmojiOnlyCountForMessage } from '../helpers/getEmojiOnlyCountForMessage';
 import {
@@ -54,6 +54,7 @@ import { removeUnreadMentions } from './chats';
 import { removeIdFromSearchResults } from './middleSearch';
 import { removeUnreadPollVotes } from './polls';
 import { removeUnreadReactions } from './reactions';
+import { updateObservedSymbols } from './symbols';
 import { updateTabState } from './tabs';
 import {
   deleteThread,
@@ -136,6 +137,10 @@ export function updateMessageStore<T extends GlobalState>(
 export function addMessages<T extends GlobalState>(
   global: T, messages: ApiMessage[],
 ): T {
+  if (isCurrentUserBot(global)) {
+    global = updateObservedSymbols(global, messages);
+  }
+
   const addedByChatId = messages.reduce((messagesByChatId, message: ApiMessage) => {
     if (!messagesByChatId[message.chatId]) {
       messagesByChatId[message.chatId] = {};
@@ -155,6 +160,10 @@ export function addMessages<T extends GlobalState>(
 export function replaceMessages<T extends GlobalState>(
   global: T, messages: ApiMessage[],
 ): T {
+  if (isCurrentUserBot(global)) {
+    global = updateObservedSymbols(global, messages);
+  }
+
   const updatedByChatId = messages.reduce((messagesByChatId, message: ApiMessage) => {
     if (!messagesByChatId[message.chatId]) {
       messagesByChatId[message.chatId] = {};
@@ -243,10 +252,16 @@ export function updateChatMessage<T extends GlobalState>(
     return global;
   }
 
-  return replaceChatMessages(global, chatId, {
+  global = replaceChatMessages(global, chatId, {
     ...byId,
     [messageId]: updatedMessage,
   });
+
+  if (isCurrentUserBot(global)) {
+    return updateObservedSymbols(global, [updatedMessage]);
+  }
+
+  return global;
 }
 
 export function updateScheduledMessage<T extends GlobalState>(

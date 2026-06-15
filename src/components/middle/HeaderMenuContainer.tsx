@@ -390,7 +390,6 @@ const HeaderMenuContainer: FC<OwnProps & StateProps> = ({
       showNotification({ message: lang('SendDisallowError') });
       return;
     }
-    openGiftModal({ forUserId: chatId });
     if (isAccountFrozen) {
       openFrozenAccountModal();
     } else {

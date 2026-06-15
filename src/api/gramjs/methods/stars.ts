@@ -43,7 +43,7 @@ import {
   buildInputUser,
   DEFAULT_PRIMITIVES } from '../gramjsBuilders';
 import { checkErrorType, wrapError } from '../helpers/misc';
-import { fetchBotApiStarBalance } from './botApi';
+import { fetchBotApiAvailableGifts, fetchBotApiStarBalance } from './botApi';
 import { invokeRequest, isBotApiSession } from './client';
 import { getPassword } from './twoFaSettings';
 
@@ -78,6 +78,10 @@ export async function fetchStarsGiveawayOptions() {
 }
 
 export async function fetchStarGifts() {
+  if (isBotApiSession()) {
+    return fetchBotApiAvailableGifts();
+  }
+
   const result = await invokeRequest(new GramJs.payments.GetStarGifts({
     hash: DEFAULT_PRIMITIVES.INT,
   }));

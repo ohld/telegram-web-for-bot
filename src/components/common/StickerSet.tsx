@@ -229,7 +229,10 @@ const StickerSet = ({
   }, [calculateItemsPerRow]);
 
   useEffect(() => {
-    if (shouldRender && !stickerSet.stickers?.length && !stickerSet.reactions?.length && stickerSet.accessHash) {
+    if (shouldRender
+      && (!stickerSet.stickers?.length || stickerSet.count !== stickerSet.stickers.length)
+      && !stickerSet.reactions?.length
+      && stickerSet.accessHash) {
       loadStickers({
         stickerSetInfo: {
           id: stickerSet.id,

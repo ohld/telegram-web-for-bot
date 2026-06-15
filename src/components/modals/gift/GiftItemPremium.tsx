@@ -10,7 +10,7 @@ import {
   selectCanPlayAnimatedEmojis,
   selectGiftStickerForDuration,
 } from '../../../global/selectors';
-import { formatCurrencyAsString } from '../../../util/formatCurrency';
+import { formatCurrency } from '../../../util/formatCurrency';
 import { formatStarsAsIcon } from '../../../util/localization/format';
 
 import useLang from '../../../hooks/useLang';
@@ -84,7 +84,7 @@ function GiftItemPremium({
         {lang('PremiumGiftDescription')}
       </div>
       <Button className={styles.buy} color="adaptive" nonInteractive size="tiny" pill fluid>
-        {formatCurrencyAsString(amount, currency)}
+        {formatCurrency(lang, amount, currency)}
       </Button>
       {optionByStars && (
         <div className={styles.starsPriceBlock}>

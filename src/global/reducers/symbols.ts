@@ -1,10 +1,15 @@
-import type { ApiSticker, ApiStickerSet, ApiVideo } from '../../api/types';
+import type {
+  ApiMessage, ApiSticker, ApiStickerSet, ApiVideo,
+} from '../../api/types';
 import type { GlobalState, TabArgs } from '../types';
 
 import { getCurrentTabId } from '../../util/establishMultitabRole';
 import { buildCollectionByKey, unique } from '../../util/iteratees';
 import { selectCustomEmojiForEmoji, selectStickersForEmoji, selectTabState } from '../selectors';
 import { updateTabState } from './tabs';
+
+const OBSERVED_GIFS_LIMIT = 100;
+const OBSERVED_STICKER_SETS_LIMIT = 50;
 
 export function updateStickerSearch<T extends GlobalState>(
   global: T,
@@ -168,6 +173,13 @@ export function updateStickerSet<T extends GlobalState>(
   };
 }
 
+export function updateObservedSymbols<T extends GlobalState>(
+  global: T, messages: ApiMessage[],
+): T {
+  global = updateObservedStickerSets(global, messages);
+  return updateObservedGifs(global, messages);
+}
+
 export function updateGifSearch<T extends GlobalState>(
   global: T, isNew: boolean, results: ApiVideo[], nextOffset?: string,
   ...[tabId = getCurrentTabId()]: TabArgs<T>
@@ -198,6 +210,132 @@ export function replaceAnimatedEmojis<T extends GlobalState>(global: T, stickerS
   return {
     ...global,
     animatedEmojis: stickerSet,
+  };
+}
+
+function updateObservedStickerSets<T extends GlobalState>(
+  global: T, messages: ApiMessage[],
+): T {
+  const stickers = messages.reduce<ApiSticker[]>((acc, { content }) => {
+    if (content.sticker) {
+      acc.push(content.sticker);
+    }
+
+    return acc;
+  }, []);
+  if (!stickers.length) {
+    return global;
+  }
+
+  let setIds = global.stickers.observed.setIds || [];
+  let setsById = global.stickers.setsById;
+  let hasChanges = false;
+
+  stickers.forEach((sticker) => {
+    if (sticker.isCustomEmoji || !('id' in sticker.stickerSetInfo)) {
+      return;
+    }
+
+    const { id, accessHash } = sticker.stickerSetInfo;
+    const existing = setsById[id];
+
+    if (existing?.stickers && existing.count === existing.stickers.length) {
+      if (!setIds.includes(id)) {
+        setIds = [id, ...setIds].slice(0, OBSERVED_STICKER_SETS_LIMIT);
+        hasChanges = true;
+      }
+      return;
+    }
+
+    const existingStickers = existing?.stickers || [];
+    const isKnownSticker = existingStickers.some(({ id: stickerId }) => stickerId === sticker.id);
+    const updatedStickers = isKnownSticker
+      ? existingStickers
+      : [sticker, ...existingStickers];
+    const count = existing ? Math.max(existing.count, updatedStickers.length + 1) : updatedStickers.length + 1;
+
+    if (!existing) {
+      setsById = {
+        ...setsById,
+        [id]: {
+          id,
+          accessHash,
+          title: '',
+          count,
+          stickers: updatedStickers,
+          shortName: '',
+        },
+      };
+      hasChanges = true;
+    } else if (!isKnownSticker || existing.accessHash !== accessHash || existing.count !== count) {
+      setsById = {
+        ...setsById,
+        [id]: {
+          ...existing,
+          accessHash,
+          count,
+          stickers: updatedStickers,
+        },
+      };
+      hasChanges = true;
+    }
+
+    if (!setIds.includes(id)) {
+      setIds = [id, ...setIds].slice(0, OBSERVED_STICKER_SETS_LIMIT);
+      hasChanges = true;
+    }
+  });
+
+  if (!hasChanges) {
+    return global;
+  }
+
+  return {
+    ...global,
+    stickers: {
+      ...global.stickers,
+      setsById,
+      observed: {
+        ...global.stickers.observed,
+        setIds,
+      },
+    },
+  };
+}
+
+function updateObservedGifs<T extends GlobalState>(
+  global: T, messages: ApiMessage[],
+): T {
+  const gifs = messages.reduce<ApiVideo[]>((acc, { content }) => {
+    if (content.video?.isGif) {
+      acc.push(content.video);
+    }
+
+    return acc;
+  }, []);
+  if (!gifs.length) {
+    return global;
+  }
+
+  let savedGifs = global.gifs.saved.gifs || [];
+  gifs.forEach((gif) => {
+    savedGifs = [
+      gif,
+      ...savedGifs.filter(({ id }) => id !== gif.id),
+    ];
+  });
+
+  savedGifs = savedGifs.slice(0, OBSERVED_GIFS_LIMIT);
+
+  return {
+    ...global,
+    gifs: {
+      ...global.gifs,
+      saved: {
+        ...global.gifs.saved,
+        gifs: savedGifs,
+      },
+    },
   };
 }
 

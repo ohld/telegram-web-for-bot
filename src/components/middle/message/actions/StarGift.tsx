@@ -114,7 +114,11 @@ const StarGiftAction = ({
       );
     }
 
-    if (isChannel) {
+    if (isChannel && action.gift.isBotApiGift) {
+      return lang('ActionStarGiftChannelNoConvertText');
+    }
+
+    if (isChannel && starsAmount) {
       return lang(
         'ActionStarGiftChannelText', { amount: starsAmount }, { withNodes: true },
       );

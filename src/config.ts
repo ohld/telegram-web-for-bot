@@ -180,6 +180,7 @@ export const SNAP_EFFECT_ID = 'snap-effect';
 
 export const STARS_ICON_PLACEHOLDER = '⭐';
 export const STARS_CURRENCY_CODE = 'XTR';
+export const BOT_API_GIFT_TEXT_LIMIT = 128;
 
 export const MIN_SCREEN_WIDTH_FOR_STATIC_RIGHT_COLUMN = 1275; // px
 export const MIN_SCREEN_WIDTH_FOR_STATIC_LEFT_COLUMN = 925; // px

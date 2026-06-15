@@ -627,7 +627,6 @@ function getBotSendMessageError({
   todo,
   contact,
   dice,
-  groupedId,
   suggestedPostInfo,
   suggestedMedia,
   scheduledAt,
@@ -646,13 +645,16 @@ function getBotSendMessageError({
     return 'PEER_ID_INVALID';
   }
 
-  if (!text?.trim()) {
+  const hasMedia = Boolean(
+    attachment || sticker || story || gif || poll || todo || contact || dice || webPageUrl,
+  );
+  if (!text?.trim() && !hasMedia) {
     return 'MESSAGE_EMPTY';
   }
 
   if (
-    attachment || sticker || story || gif || poll || todo || contact || dice || groupedId || suggestedPostInfo
-    || suggestedMedia || scheduledAt || scheduleRepeatPeriod || sendAs || effectId || webPageUrl || messagePriceInStars
+    suggestedPostInfo || suggestedMedia || scheduledAt || scheduleRepeatPeriod || sendAs || effectId
+    || messagePriceInStars
   ) {
     return 'BOT_METHOD_INVALID';
   }
@@ -1989,6 +1991,10 @@ export async function sendPollVote({
   messageId: number;
   options: string[];
 }) {
+  if (isBotApiSession()) {
+    return;
+  }
+
   const { id, accessHash } = chat;
 
   await invokeRequest(new GramJs.messages.SendVote({

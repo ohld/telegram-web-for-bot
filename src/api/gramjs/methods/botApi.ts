@@ -3,11 +3,15 @@ import { Api as GramJs } from '../../../lib/gramjs';
 import type {
   ApiFormattedText,
   ApiPremiumGiftCodeOption,
+  ApiReaction,
+  ApiStarGiftRegular,
   ApiTypeCurrencyAmount,
 } from '../../types';
+import type { BotApiGifts } from '../apiBuilders/botApi';
 
 import { STARS_CURRENCY_CODE } from '../../../config';
 import { isUserId } from '../../../util/entities/ids';
+import { buildApiStarGiftFromBotApiGift } from '../apiBuilders/botApi';
 import { invokeRequest, isBotApiSession } from './client';
 
 type BotApiResponse<T> = {
@@ -37,6 +41,20 @@ type BotApiStarsStatus = {
 type BotApiSendResult = {
   success?: true;
   error?: string;
+};
+
+type BotApiReaction = {
+  type: 'emoji';
+  emoji: string;
+} | {
+  type: 'custom_emoji';
+  custom_emoji_id: string;
+};
+
+type BotApiStarGifts = {
+  gifts: ApiStarGiftRegular[];
+  chats?: undefined;
+  users?: undefined;
 };
 
 const BOT_API_PREMIUM_GIFT_OPTIONS: ApiPremiumGiftCodeOption[] = [{
@@ -80,6 +98,18 @@ export async function fetchBotApiStarBalance(): Promise<BotApiStarsStatus | unde
   };
 }
 
+export async function fetchBotApiAvailableGifts(): Promise<BotApiStarGifts | undefined> {
+  const response = await invokeBotApiRequest<BotApiGifts>('getAvailableGifts');
+  const result = response?.result;
+  if (!result) {
+    return undefined;
+  }
+
+  return {
+    gifts: result.gifts.map(buildApiStarGiftFromBotApiGift),
+  };
+}
+
 export async function sendBotApiGift({
   peerId,
   giftId,
@@ -118,6 +148,24 @@ export async function sendBotApiPremiumGift({
     month_count: months,
     star_count: amount,
     text: message?.text,
+  });
+
+  return buildBotApiSendResult(response);
+}
+
+export async function sendBotApiReaction({
+  chatId,
+  messageId,
+  reactions,
+}: {
+  chatId: string;
+  messageId: number;
+  reactions?: ApiReaction[];
+}): Promise<BotApiSendResult | undefined> {
+  const response = await invokeBotApiRequest<boolean>('setMessageReaction', {
+    chat_id: Number(chatId),
+    message_id: messageId,
+    reaction: reactions?.map(buildBotApiReaction) || [],
   });
 
   return buildBotApiSendResult(response);
@@ -170,6 +218,20 @@ function buildBotApiSendResult(response?: BotApiRequestResult<boolean>): BotApiS
   }
 
   return { error: response.error };
+}
+
+function buildBotApiReaction(reaction: ApiReaction): BotApiReaction {
+  if (reaction.type === 'custom') {
+    return {
+      type: 'custom_emoji',
+      custom_emoji_id: reaction.documentId,
+    };
+  }
+
+  return {
+    type: 'emoji',
+    emoji: reaction.emoticon,
+  };
 }
 
 function parseJson(data: string) {

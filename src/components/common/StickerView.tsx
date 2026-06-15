@@ -101,6 +101,8 @@ const StickerView = ({
   const isVideo = sticker.isVideo;
   const isStatic = !isLottie && !isVideo;
   const previewMediaHash = getStickerMediaHash(sticker, 'preview');
+  const defaultFullMediaHash = sticker.botApiFileId ? getStickerMediaHash(sticker, 'inline') : `sticker${id}`;
+  const hasPreviewMedia = Boolean(!sticker.botApiFileId || isStatic || sticker.botApiPreviewFileId);
 
   const dpr = useDevicePixelRatio();
 
@@ -121,15 +123,15 @@ const StickerView = ({
   const cachedPreview = mediaLoader.getFromMemory(previewMediaHash);
   const isReadyToMountFullMedia = useMountAfterHeavyAnimation(hasIntersectedForPlayingRef.current);
   const shouldForcePreview = !skipPreview && (isUnsupportedVideo || (isStatic ? isSmall : noPlay));
-  const shouldLoadPreview = !skipPreview && !customColor && !cachedPreview
+  const shouldLoadPreview = hasPreviewMedia && !skipPreview && !customColor && !cachedPreview
     && (!isReadyToMountFullMedia || shouldForcePreview);
   const previewMediaData = useMedia(previewMediaHash, !shouldLoadPreview);
-  const withPreview = !skipPreview && (shouldLoadPreview || cachedPreview);
+  const withPreview = hasPreviewMedia && !skipPreview && (shouldLoadPreview || cachedPreview);
 
   const shouldSkipLoadingFullMedia = Boolean(shouldForcePreview || (
     fullMediaHash === previewMediaHash && (cachedPreview || previewMediaData)
   ));
-  const fullMediaData = useMedia(fullMediaHash || `sticker${id}`, !shouldLoad || shouldSkipLoadingFullMedia);
+  const fullMediaData = useMedia(fullMediaHash || defaultFullMediaHash, !shouldLoad || shouldSkipLoadingFullMedia);
   const shouldRenderFullMedia = isReadyToMountFullMedia && Boolean(fullMediaData) && !isVideoBroken;
   const [isPlayerReady, markPlayerReady] = useFlag();
   const isFullMediaReady = shouldRenderFullMedia && (isStatic || isPlayerReady);

@@ -39,11 +39,11 @@ type OwnProps = {
   hasResults?: boolean;
   hasMaskedResults?: boolean;
   isSendingVote?: boolean;
+  canSelect: boolean;
   recentVoters?: ApiPeer[];
   shouldReserveMediaColumn?: boolean;
   mediaPreviewId?: string;
   mediaPreviewIndex?: number;
-  isInScheduled?: boolean;
   observeIntersectionForLoading?: ObserveFn;
   observeIntersectionForPlaying?: ObserveFn;
   onSelect: (option: string) => void;
@@ -66,11 +66,11 @@ const PollOption = ({
   hasResults,
   hasMaskedResults,
   isSendingVote,
+  canSelect,
   recentVoters,
   shouldReserveMediaColumn,
   mediaPreviewId,
   mediaPreviewIndex,
-  isInScheduled,
   observeIntersectionForLoading,
   observeIntersectionForPlaying,
   onSelect,
@@ -152,6 +152,10 @@ const PollOption = ({
   }, isAnimatingPercentage ? PERCENT_STEP_MS : undefined, true);
 
   const handleClick = useLastCallback(() => {
+    if (!canSelect) {
+      return;
+    }
+
     onSelect(answer.option);
   });
 
@@ -192,7 +196,7 @@ const PollOption = ({
         <Checkbox
           className={styles.input}
           checked={hasMaskedResults ? result?.isChosen : isSelected}
-          disabled={hasMaskedResults || isInScheduled}
+          disabled={hasMaskedResults || !canSelect}
         />
       );
     }
@@ -202,7 +206,7 @@ const PollOption = ({
         className={styles.input}
         value={answer.option}
         checked={hasMaskedResults ? result?.isChosen : isSelected}
-        disabled={hasMaskedResults || isInScheduled}
+        disabled={hasMaskedResults || !canSelect}
       />
     );
   }
@@ -314,9 +318,9 @@ const PollOption = ({
         hasResults && !hasMaskedResults && styles.hasResults,
         shouldReserveMediaEndColumn && styles.hasMediaColumn,
         hasResults && !hasMaskedResults && isQuiz && !result?.isCorrect && styles.incorrect,
-        !hasResults && !isInScheduled && styles.clickable,
+        !hasResults && canSelect && styles.clickable,
       )}
-      onClick={!isInScheduled ? handleClick : undefined}
+      onClick={canSelect ? handleClick : undefined}
     >
       <Transition
         name="fade"

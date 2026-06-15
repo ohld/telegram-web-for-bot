@@ -53,7 +53,6 @@ import {
   selectCanTranslateMessage,
   selectChat,
   selectChatFullInfo,
-  selectCurrentMessageList,
   selectIsChatWithSelf,
   selectIsCurrentUserPremium,
   selectIsMessageProtected,
@@ -97,6 +96,7 @@ import MessageContextMenu from './MessageContextMenu';
 export type OwnProps = {
   isOpen: boolean;
   message: ApiMessage;
+  threadId: ThreadId;
   album?: IAlbum;
   anchor: IAnchorPosition;
   targetHref?: string;
@@ -110,7 +110,6 @@ export type OwnProps = {
 };
 
 type StateProps = {
-  threadId?: ThreadId;
   poll?: ApiMessagePoll;
   webPage?: ApiWebPage;
   story?: ApiTypeStory;
@@ -826,9 +825,9 @@ const ContextMenuContainer: FC<OwnProps & StateProps> = ({
 };
 
 export default memo(withGlobal<OwnProps>(
-  (global, { message, messageListType, detectedLanguage }): Complete<StateProps> => {
-    const { threadId } = selectCurrentMessageList(global) || {};
-
+  (global, {
+    message, messageListType, detectedLanguage, threadId,
+  }): Complete<StateProps> => {
     const { defaultTags, topReactions, availableReactions } = global.reactions;
 
     const activeDownloads = selectActiveDownloads(global);
@@ -961,7 +960,6 @@ export default memo(withGlobal<OwnProps>(
       && message.content.todo?.todo.items?.length < todoItemsMax;
 
     return {
-      threadId,
       chat,
       availableReactions,
       topReactions,

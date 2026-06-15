@@ -27,6 +27,7 @@ import {
   generateRandomTimestampedBigInt,
 } from '../gramjsBuilders';
 import localDb from '../localDb';
+import { sendBotApiReaction } from './botApi';
 import { invokeRequest, isBotApiSession } from './client';
 
 export function sendWatchingEmojiInteraction({
@@ -157,6 +158,19 @@ export function sendReaction({
   shouldAddToRecent?: boolean;
 }) {
   const isBotSession = isBotApiSession();
+  if (isBotSession) {
+    return sendBotApiReaction({
+      chatId: chat.id,
+      messageId,
+      reactions,
+    }).then((result) => {
+      if (!result?.success) {
+        throw new Error(result?.error || 'setMessageReaction');
+      }
+
+      return true;
+    });
+  }
 
   return invokeRequest(new GramJs.messages.SendReaction({
     reaction: reactions?.map((r) => buildInputReaction(r)),

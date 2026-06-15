@@ -22,6 +22,10 @@ import type { ActiveDownloads } from '../../types';
 import { ApiMediaFormat } from '../../api/types';
 
 import {
+  LOTTIE_STICKER_MIME_TYPE,
+  VIDEO_STICKER_MIME_TYPE,
+} from '../../config';
+import {
   IS_OPFS_SUPPORTED,
   IS_OPUS_SUPPORTED,
   IS_PROGRESSIVE_SUPPORTED,
@@ -306,6 +310,15 @@ export function getWebDocumentHash(webDocument?: ApiWebDocument) {
 }
 
 export function getStickerMediaHash(sticker: ApiSticker, target: SizeTarget) {
+  if (sticker.botApiFileId) {
+    const isBotApiPreview = target === 'preview' && Boolean(sticker.botApiPreviewFileId);
+    const fileId = isBotApiPreview ? sticker.botApiPreviewFileId! : sticker.botApiFileId;
+    const params = new URLSearchParams();
+    params.set('mimeType', isBotApiPreview ? 'image/jpeg' : getBotApiStickerMimeType(sticker));
+
+    return `botApiSticker:${encodeURIComponent(fileId)}?${params.toString()}`;
+  }
+
   const base = `document${sticker.id}`;
 
   switch (target) {
@@ -323,6 +336,18 @@ export function getStickerMediaHash(sticker: ApiSticker, target: SizeTarget) {
     default:
       return base;
   }
+}
+
+function getBotApiStickerMimeType(sticker: ApiSticker) {
+  if (sticker.isVideo) {
+    return VIDEO_STICKER_MIME_TYPE;
+  }
+
+  if (sticker.isLottie) {
+    return LOTTIE_STICKER_MIME_TYPE;
+  }
+
+  return 'image/webp';
 }
 
 export function getMediaHash(media: DownloadableMedia, target: SizeTarget) {

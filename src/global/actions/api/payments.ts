@@ -2,6 +2,7 @@ import type {
   ApiInputInvoice, ApiInputInvoicePremiumGiftStars, ApiInputInvoiceStarGift,
   ApiInputInvoiceStarGiftAuctionBid, ApiInputInvoiceStarGiftResale,
   ApiRequestInputInvoice,
+  ApiStarGiftRegular,
 } from '../../../api/types';
 import type { ApiCredentials } from '../../../components/payment/PaymentModal';
 import type { RegularLangFnParameters } from '../../../util/localization';
@@ -10,8 +11,15 @@ import type {
 } from '../../types';
 import { PaymentStep } from '../../../types';
 
-import { DEBUG_PAYMENT_SMART_GLOCAL, STARS_CURRENCY_CODE, TON_CURRENCY_CODE } from '../../../config';
+import {
+  BOT_API_GIFT_TEXT_LIMIT,
+  DEBUG_PAYMENT_SMART_GLOCAL,
+  STARS_CURRENCY_CODE,
+  TON_CURRENCY_CODE,
+} from '../../../config';
+import { isUserId } from '../../../util/entities/ids';
 import { getCurrentTabId } from '../../../util/establishMultitabRole';
+import { buildCollectionByKey } from '../../../util/iteratees';
 import * as langProvider from '../../../util/oldLangProvider';
 import { getStripeError } from '../../../util/payments/stripe';
 import { getServerTime } from '../../../util/serverTime';
@@ -36,6 +44,7 @@ import {
   updateChatFullInfo,
   updatePayment,
   updateShippingOptions,
+  updateStarsBalance,
   updateStarsPayment,
 } from '../../reducers';
 import { updateTabState } from '../../reducers/tabs';
@@ -160,12 +169,36 @@ addActionHandler('sendStarGift', async (global, actions, payload): Promise<void>
   } = payload;
 
   if (await callApi('isBotApiSession')) {
+    if (message?.text && message.text.length > BOT_API_GIFT_TEXT_LIMIT) {
+      actions.showNotification({
+        message: { key: 'BotGiftMessageTooLong' },
+        tabId,
+      });
+      return;
+    }
+
+    if (gift.isLimited && !isUserId(peerId)) {
+      const chat = selectChat(global, peerId);
+      if (chat && isChatChannel(chat)) {
+        actions.showNotification({
+          message: { key: 'BotGiftLimitedChannelError' },
+          tabId,
+        });
+        return;
+      }
+    }
+
     const price = gift.stars + (shouldUpgrade ? gift.upgradeStars || 0 : 0);
     const balance = global.stars?.balance;
     if (balance && balance.amount < price) {
       actions.openStarsBalanceModal({ tabId });
       return;
     }
+
+    global = updateTabState(global, {
+      isPaymentFormLoading: true,
+    }, tabId);
+    setGlobal(global);
 
     const result = await callApi('sendBotApiGift', {
       peerId,
@@ -174,11 +207,20 @@ addActionHandler('sendStarGift', async (global, actions, payload): Promise<void>
       shouldUpgrade,
     });
 
+    global = getGlobal();
+    global = updateTabState(global, {
+      isPaymentFormLoading: false,
+    }, tabId);
+    setGlobal(global);
+
     if (!result?.success) {
       actions.showNotification({
         message: result?.error || { key: 'GeneralError' },
         tabId,
       });
+      if (result?.error?.includes('GIFT_INVALID')) {
+        actions.loadStarGifts();
+      }
       return;
     }
 
@@ -224,11 +266,24 @@ addActionHandler('sendPremiumGiftByStars', async (global, actions, payload): Pro
   } = payload;
 
   if (await callApi('isBotApiSession')) {
+    if (message?.text && message.text.length > BOT_API_GIFT_TEXT_LIMIT) {
+      actions.showNotification({
+        message: { key: 'BotGiftMessageTooLong' },
+        tabId,
+      });
+      return;
+    }
+
     const balance = global.stars?.balance;
     if (balance && balance.amount < amount) {
       actions.openStarsBalanceModal({ tabId });
       return;
     }
+
+    global = updateTabState(global, {
+      isPaymentFormLoading: true,
+    }, tabId);
+    setGlobal(global);
 
     const result = await callApi('sendBotApiPremiumGift', {
       userId,
@@ -236,6 +291,12 @@ addActionHandler('sendPremiumGiftByStars', async (global, actions, payload): Pro
       amount,
       message,
     });
+
+    global = getGlobal();
+    global = updateTabState(global, {
+      isPaymentFormLoading: false,
+    }, tabId);
+    setGlobal(global);
 
     if (!result?.success) {
       actions.showNotification({
@@ -686,8 +747,13 @@ addActionHandler('openGiftModal', async (global, actions, payload): Promise<void
     return;
   }
 
+  const isBotSession = await callApi('isBotApiSession');
   const gifts = await callApi('getPremiumGiftCodeOptions', {});
   if (!gifts) return;
+
+  if (isBotSession) {
+    await loadBotApiGiftModalState(global);
+  }
 
   global = getGlobal();
   global = updateTabState(global, {
@@ -700,6 +766,48 @@ addActionHandler('openGiftModal', async (global, actions, payload): Promise<void
   }, tabId);
   setGlobal(global);
 });
+
+async function loadBotApiGiftModalState<T extends GlobalState>(global: T): Promise<T> {
+  const [starsStatus, starGifts] = await Promise.all([
+    callApi('fetchStarsStatus', {}),
+    callApi('fetchStarGifts'),
+  ]);
+
+  global = getGlobal();
+
+  if (starsStatus?.balance) {
+    global = updateStarsBalance(global, starsStatus.balance);
+  }
+
+  if (starGifts) {
+    global = updateStarGifts(global, starGifts.gifts);
+  }
+
+  setGlobal(global);
+
+  return global;
+}
+
+function updateStarGifts<T extends GlobalState>(global: T, gifts: ApiStarGiftRegular[]): T {
+  const byId = buildCollectionByKey(gifts, 'id');
+  const allStarGiftIds = Object.keys(byId);
+  const allStarGifts = Object.values(byId);
+  const collectibleStarGiftIds = allStarGifts.map((gift) => (
+    (gift.availabilityResale || (gift.isLimited && !gift.isSoldOut)) ? gift.id : undefined))
+    .filter(Boolean);
+
+  return {
+    ...global,
+    starGifts: {
+      byId,
+      idsByCategory: {
+        all: allStarGiftIds,
+        collectible: collectibleStarGiftIds,
+        myUnique: [],
+      },
+    },
+  };
+}
 
 addActionHandler('openStarsGiftModal', async (global, actions, payload): Promise<void> => {
   const {

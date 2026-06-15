@@ -459,6 +459,16 @@ export type ApiUpdateMessageReactions = {
   reactions: ApiReactions;
 };
 
+export type ApiUpdateMessageReactionDelta = {
+  '@type': 'updateMessageReactionDelta';
+  id: number;
+  chatId: string;
+  actorId: string;
+  date: number;
+  oldReactions: ApiReaction[];
+  newReactions: ApiReaction[];
+};
+
 export type ApiUpdateMessageExtendedMedia = {
   '@type': 'updateMessageExtendedMedia';
   id: number;
@@ -960,7 +970,7 @@ export type ApiUpdate = (
   ApiUpdateFailedMessageTranslations | ApiUpdateWebPage | ApiUpdateChatTypingDraft | ApiUpdateDiscussion |
   ApiUpdateTwoFaError | ApiUpdateTwoFaStateWaitCode | ApiUpdateWebViewResultSent |
   ApiUpdateDefaultNotifySettings | ApiUpdatePeerNotifySettings | ApiUpdatePeerBlocked | ApiUpdatePrivacy |
-  ApiUpdateServerTimeOffset | ApiUpdateMessageReactions | ApiUpdateSavedReactionTags |
+  ApiUpdateServerTimeOffset | ApiUpdateMessageReactions | ApiUpdateMessageReactionDelta | ApiUpdateSavedReactionTags |
   ApiUpdateGroupCallParticipants | ApiUpdateGroupCallConnection | ApiUpdateGroupCall | ApiUpdateGroupCallStreams |
   ApiUpdateGroupCallConnectionState | ApiUpdateGroupCallLeavePresentation | ApiUpdateGroupCallChatId |
   ApiUpdatePendingJoinRequests | ApiUpdatePaymentStateCompleted |

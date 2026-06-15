@@ -1,4 +1,4 @@
-import type { ChangeEvent } from 'react';
+import type React from '../../../lib/teact/teact';
 import {
   memo, useEffect, useMemo, useState,
 } from '../../../lib/teact/teact';
@@ -7,9 +7,12 @@ import { getActions, withGlobal } from '../../../global';
 import type { ThemeKey } from '../../../types';
 import type { GiftOption } from './GiftModal';
 import {
-  type ApiMessage, type ApiPeer, type ApiStarGiftAuctionState, type ApiStarsAmount, MAIN_THREAD_ID,
+  type ApiMessage, type ApiPeer, type ApiPremiumGiftCodeOption,
+  type ApiStarGiftAuctionState, type ApiStarsAmount, MAIN_THREAD_ID,
 } from '../../../api/types';
 
+import { BOT_API_GIFT_TEXT_LIMIT, STARS_CURRENCY_CODE } from '../../../config';
+import { isCurrentUserBot as selectIsCurrentUserBot } from '../../../global/helpers';
 import { getPeerTitle, isApiPeerUser } from '../../../global/helpers/peers';
 import {
   selectPeer, selectPeerPaidMessagesStars, selectTabState, selectTheme, selectThemeValues, selectUserFullInfo,
@@ -39,7 +42,7 @@ import styles from './GiftComposer.module.scss';
 
 export type OwnProps = {
   gift: GiftOption;
-  giftByStars?: GiftOption;
+  giftByStars?: ApiPremiumGiftCodeOption;
   peerId: string;
 };
 
@@ -55,6 +58,7 @@ export type StateProps = {
   isPaymentFormLoading?: boolean;
   starBalance?: ApiStarsAmount;
   paidMessagesStars?: number;
+  isCurrentUserBot?: boolean;
   areUniqueStarGiftsDisallowed?: boolean;
   shouldDisallowLimitedStarGifts?: boolean;
   giftAuction?: ApiStarGiftAuctionState;
@@ -78,6 +82,7 @@ function GiftComposer({
   isPaymentFormLoading,
   starBalance,
   paidMessagesStars,
+  isCurrentUserBot,
   areUniqueStarGiftsDisallowed,
   shouldDisallowLimitedStarGifts,
   giftAuction,
@@ -104,13 +109,19 @@ function GiftComposer({
 
   const isStarGift = 'id' in gift && gift.type === 'starGift';
   const isPremiumGift = 'months' in gift;
-  const hasPremiumByStars = giftByStars && 'amount' in giftByStars;
+  const isBotApiGift = isStarGift && gift.isBotApiGift;
+  const isPremiumGiftByStars = isPremiumGift && gift.currency === STARS_CURRENCY_CODE;
+  const shouldUseBotApiTextLimit = isCurrentUserBot && (isBotApiGift || isPremiumGiftByStars);
+  const effectiveCaptionLimit = shouldUseBotApiTextLimit ? BOT_API_GIFT_TEXT_LIMIT : captionLimit;
+  const premiumGiftByStars = isPremiumGift
+    ? isPremiumGiftByStars ? gift : giftByStars
+    : undefined;
   const isPeerUser = peer && isApiPeerUser(peer);
   const isSelf = peerId === currentUserId;
 
   const localMessage = useMemo(() => {
     if (isPremiumGift) {
-      const currentGift = shouldPayByStars && hasPremiumByStars ? giftByStars : gift;
+      const currentGift = shouldPayByStars && premiumGiftByStars ? premiumGiftByStars : gift;
       return {
         id: -1,
         chatId: '0',
@@ -144,8 +155,8 @@ function GiftComposer({
             message: giftMessage?.length ? {
               text: giftMessage,
             } : undefined,
-            isNameHidden: shouldHideName || undefined,
-            starsToConvert: gift.starsToConvert,
+            isNameHidden: !isBotApiGift && shouldHideName ? true : undefined,
+            starsToConvert: isBotApiGift ? undefined : gift.starsToConvert,
             canUpgrade: shouldPayForUpgrade || undefined,
             alreadyPaidUpgradeStars: shouldPayForUpgrade ? gift.upgradeStars : undefined,
             gift,
@@ -156,11 +167,17 @@ function GiftComposer({
       } satisfies ApiMessage;
     }
     return undefined;
-  }, [currentUserId, gift, giftMessage, isStarGift,
+  }, [currentUserId, gift, giftMessage, isStarGift, isBotApiGift,
     shouldHideName, shouldPayForUpgrade, peerId,
-    shouldPayByStars, hasPremiumByStars, giftByStars, isPremiumGift]);
+    shouldPayByStars, premiumGiftByStars, isPremiumGift]);
 
-  const handleGiftMessageChange = useLastCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
+  useEffect(() => {
+    if (isBotApiGift && shouldHideName) {
+      setShouldHideName(false);
+    }
+  }, [isBotApiGift, shouldHideName]);
+
+  const handleGiftMessageChange = useLastCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setGiftMessage(e.target.value);
   });
 
@@ -173,7 +190,7 @@ function GiftComposer({
   });
 
   const toggleShouldPayByStars = useLastCallback(() => {
-    if (hasPremiumByStars) setShouldPayByStars(!shouldPayByStars);
+    if (premiumGiftByStars) setShouldPayByStars(!shouldPayByStars);
   });
 
   const handleOpenUpgradePreview = useLastCallback(() => {
@@ -219,7 +236,7 @@ function GiftComposer({
     if (isStarGift) {
       sendStarGift({
         peerId,
-        shouldHideName,
+        shouldHideName: !isBotApiGift && shouldHideName ? true : undefined,
         gift,
         message: giftMessage ? { text: giftMessage } : undefined,
         shouldUpgrade: shouldPayForUpgrade,
@@ -227,11 +244,11 @@ function GiftComposer({
       return;
     }
 
-    if (shouldPayByStars && hasPremiumByStars) {
+    if ((isPremiumGiftByStars || shouldPayByStars) && premiumGiftByStars) {
       sendPremiumGiftByStars({
         userId: peerId,
-        months: giftByStars.months,
-        amount: giftByStars.amount,
+        months: premiumGiftByStars.months,
+        amount: premiumGiftByStars.amount,
         message: giftMessage ? { text: giftMessage } : undefined,
       });
       return;
@@ -249,9 +266,10 @@ function GiftComposer({
     }
   });
 
-  const canUseStarsPayment = hasPremiumByStars && starBalance && (starBalance.amount > giftByStars.amount);
+  const canUseStarsPayment = !isPremiumGiftByStars
+    && premiumGiftByStars && starBalance && (starBalance.amount > premiumGiftByStars.amount);
   function renderOptionsSection() {
-    const symbolsLeft = captionLimit ? captionLimit - giftMessage.length : undefined;
+    const symbolsLeft = effectiveCaptionLimit ? effectiveCaptionLimit - giftMessage.length : undefined;
 
     const title = getPeerTitle(lang, peer!)!;
     return (
@@ -263,18 +281,18 @@ function GiftComposer({
             onChange={handleGiftMessageChange}
             value={giftMessage}
             label={lang('GiftMessagePlaceholder')}
-            maxLength={captionLimit}
+            maxLength={effectiveCaptionLimit}
             maxLengthIndicator={
               symbolsLeft && symbolsLeft < LIMIT_DISPLAY_THRESHOLD ? symbolsLeft.toString() : undefined
             }
           />
         )}
 
-        {canUseStarsPayment && (
+        {canUseStarsPayment && premiumGiftByStars && (
           <ListItem className={styles.switcher} narrow ripple onClick={toggleShouldPayByStars}>
             <span>
               {lang('GiftPremiumPayWithStars', {
-                stars: formatStarsAsIcon(lang, giftByStars.amount, { className: styles.switcherStarIcon }),
+                stars: formatStarsAsIcon(lang, premiumGiftByStars.amount, { className: styles.switcherStarIcon }),
               }, { withNodes: true })}
             </span>
             <Switcher
@@ -285,7 +303,7 @@ function GiftComposer({
           </ListItem>
         )}
 
-        {hasPremiumByStars && starBalance && (
+        {premiumGiftByStars && starBalance && (
           <div className={styles.description}>
             {lang('GiftPremiumDescriptionYourBalance', {
               stars: formatStarsAsIcon(lang, starBalance.amount, { className: styles.switcherStarIcon }),
@@ -353,7 +371,7 @@ function GiftComposer({
           </div>
         )}
 
-        {isStarGift && (
+        {isStarGift && !isBotApiGift && (
           <ListItem className={styles.switcher} narrow ripple onClick={handleShouldHideNameChange}>
             <span>{lang('GiftHideMyName')}</span>
             <Switcher
@@ -363,7 +381,7 @@ function GiftComposer({
             />
           </ListItem>
         )}
-        {isStarGift && (
+        {isStarGift && !isBotApiGift && (
           <div className={styles.description}>
             {isSelf ? lang('GiftHideNameDescriptionSelf')
               : isPeerUser ? lang('GiftHideNameDescription', { receiver: title })
@@ -375,8 +393,8 @@ function GiftComposer({
   }
 
   function renderFooter() {
-    const amount = shouldPayByStars && hasPremiumByStars
-      ? formatStarsAsIcon(lang, giftByStars.amount, { asFont: true })
+    const amount = (isPremiumGiftByStars || shouldPayByStars) && premiumGiftByStars
+      ? formatStarsAsIcon(lang, premiumGiftByStars.amount, { asFont: true })
       : isStarGift
         ? formatStarsAsIcon(lang, gift.stars + (shouldPayForUpgrade ? gift.upgradeStars! : 0), { asFont: true })
         : isPremiumGift ? formatCurrency(lang, gift.amount, gift.currency) : undefined;
@@ -516,6 +534,7 @@ export default memo(withGlobal<OwnProps>(
       backgroundColor,
       captionLimit: global.appConfig.starGiftMaxMessageLength,
       currentUserId: global.currentUserId,
+      isCurrentUserBot: selectIsCurrentUserBot(global),
       isPaymentFormLoading: tabState.isPaymentFormLoading,
       paidMessagesStars,
       areUniqueStarGiftsDisallowed,

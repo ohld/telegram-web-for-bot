@@ -1585,6 +1585,8 @@
 "StarsGiftHeader" = "Send a Gift";
 "StarsGiftHeaderSelf" = "Buy a Gift";
 "StarGiftDescription" = "Give {user} gifts that can be kept on the profile or converted to Stars.";
+"BotStarGiftDescription" = "Send gifts from your bot's available catalog. Gifts sent by bots can't be converted to Stars.";
+"BotGiftsEmpty" = "No gifts are available for this bot right now.";
 "StarGiftDescriptionCollectibles" = "Collectible gifts are unique digital items you exchange or sell.";
 "StarGiftDescriptionSelf" = "Buy yourself a gift to add to your profile or reserve for later.\n\nLimited-edition gifts upgraded to collectibles can be gifted to others.";
 "StarGiftDescriptionChannel" = "Select gift to show appreciation to **{peer}**.";
@@ -2087,6 +2089,7 @@
 "ActionStarGiftConvertedText" = "{peer} converted this gift to {amount}.";
 "ActionStarGiftConvertedTextYou" = "You converted this gift to {amount}.";
 "ActionStarGiftChannelText" = "Add this gift to your channel's profile or convert it to {amount}.";
+"ActionStarGiftChannelNoConvertText" = "Add this gift to your channel's profile.";
 "ActionStarGiftDisplaying" = "You added this gift to your profile.";
 "ActionStarGiftChannelDisplaying" = "This gift is displayed to visitors of your channel.";
 "ActionStarGiftUpgradeText" = "{peer} can turn this gift into a unique collectible.";
@@ -2212,6 +2215,9 @@
 "GiftPremiumDescriptionYourBalance" = "Your balance is **{stars}**. {link}";
 "StarsGiftCompleted" = "Gift sent!";
 "GiftSent" = "Gift sent!";
+"BotGiftMessageTooLong" = "Gift message can't be longer than 128 characters.";
+"BotGiftLimitedChannelError" = "Limited gifts can't be sent to channel chats.";
+"BotGiftPremiumRequired" = "This gift can only be sent by Telegram Premium users.";
 "PrivacyDescriptionMessagesContactsAndPremium" = "You can restrict messages from users who are not in your contacts and whom you haven't messaged first.";
 "PrivacyChargeForMessages" = "Charge for Messages";
 "PrivacyDescriptionChargeForMessages" = "Charge a fee for messages from people outside your contacts or those you haven't messaged first.";

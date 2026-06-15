@@ -346,6 +346,9 @@ export type GlobalState = {
       hash?: string;
       setIds?: string[];
     };
+    observed: {
+      setIds?: string[];
+    };
     recent: {
       hash?: string;
       stickers: ApiSticker[];

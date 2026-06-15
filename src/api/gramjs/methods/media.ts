@@ -22,8 +22,19 @@ const MEDIA_ENTITY_TYPES = new Set<EntityType>([
   'sticker', 'wallpaper', 'photo', 'webDocument', 'document',
 ]);
 
+const BOT_API_FILE_BASE_URL = 'https://api.telegram.org/file/bot';
 const JPEG_SIZE_TYPES = new Set(['s', 'm', 'x', 'y', 'w', 'a', 'b', 'c', 'd']);
 const MP4_SIZES_TYPES = new Set(['u', 'v']);
+
+type BotApiResponse<T> = {
+  ok?: boolean;
+  result?: T;
+};
+
+type BotApiFile = {
+  file_path?: string;
+  file_size?: number;
+};
 
 export default async function downloadMedia(
   {
@@ -69,7 +80,7 @@ export default async function downloadMedia(
 
 export type EntityType = (
   'sticker' | 'wallpaper' | 'channel' | 'chat' | 'user' | 'photo' | 'stickerSet' | 'webDocument' |
-  'document' | 'staticMap'
+  'document' | 'staticMap' | 'botApiSticker'
 );
 
 async function download(
@@ -105,6 +116,13 @@ async function download(
       mimeType: 'image/png',
       data,
     };
+  }
+
+  if (entityType === 'botApiSticker') {
+    const parsedParams = new URLSearchParams(params || '');
+    const mimeType = parsedParams.get('mimeType') || undefined;
+
+    return downloadBotApiFile(entityId.toString(), client, mimeType, isHtmlAllowed);
   }
 
   let entity: (
@@ -184,6 +202,80 @@ async function download(
   }
 }
 
+async function downloadBotApiFile(
+  fileId: string,
+  client: TelegramClient,
+  mimeType?: string,
+  isHtmlAllowed?: boolean,
+) {
+  const botAuthToken = client.getBotAuthToken();
+  if (!botAuthToken) {
+    return undefined;
+  }
+
+  const response = await client.invoke(new GramJs.bots.SendCustomRequest({
+    customMethod: 'getFile',
+    params: new GramJs.DataJSON({
+      data: JSON.stringify({ file_id: fileId }),
+    }),
+  })).catch(() => undefined);
+  if (!response) {
+    return undefined;
+  }
+
+  const file = buildBotApiFile(response.data);
+  if (!file?.file_path) {
+    return undefined;
+  }
+
+  const fileResponse = await fetch(`${BOT_API_FILE_BASE_URL}${botAuthToken}/${file.file_path}`)
+    .catch(() => undefined);
+  if (!fileResponse?.ok) {
+    return undefined;
+  }
+
+  const data = Buffer.from(await fileResponse.arrayBuffer());
+
+  return {
+    mimeType: getSafeMimeType(getMimeType(data, mimeType), isHtmlAllowed),
+    data,
+    fullSize: file.file_size,
+  };
+}
+
+function getSafeMimeType(mimeType: string, isHtmlAllowed?: boolean) {
+  return isHtmlAllowed ? mimeType : mimeType.replace(/html/gi, '');
+}
+
+function buildBotApiFile(data: string): BotApiFile | undefined {
+  const response = parseJson<BotApiResponse<BotApiFile> | BotApiFile>(data);
+  if (!response) {
+    return undefined;
+  }
+
+  if (isBotApiResponse<BotApiFile>(response)) {
+    return response.ok === false ? undefined : response.result;
+  }
+
+  return isBotApiFile(response) ? response : undefined;
+}
+
+function isBotApiResponse<T>(response: BotApiResponse<T> | BotApiFile): response is BotApiResponse<T> {
+  return 'result' in response || 'ok' in response;
+}
+
+function isBotApiFile(response: BotApiResponse<BotApiFile> | BotApiFile): response is BotApiFile {
+  return 'file_path' in response || 'file_size' in response;
+}
+
+function parseJson<T>(data: string) {
+  try {
+    return JSON.parse(data) as T;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseMedia(
   data: Buffer<ArrayBuffer> | File, mediaFormat: ApiMediaFormat, mimeType?: string,
 ): ApiParsedMedia | undefined {
@@ -241,20 +333,23 @@ export function parseMediaUrl(url: string) {
     ? url.match(/(staticMap):([0-9-]+)(\?.+)/)
     : url.startsWith('webDocument')
       ? url.match(/(webDocument):(.+)/)
-      : url.match(
-
-        /(avatar|profile|photo|stickerSet|sticker|wallpaper|document)([-\d\w./]+)(?::\d+)?(\?size=\w+)?/,
-      );
+      : url.startsWith('botApiSticker')
+        ? url.match(/(botApiSticker):([^?]+)(\?.+)?/)
+        : url.match(
+          /(avatar|profile|photo|stickerSet|sticker|wallpaper|document)([-\d\w./]+)(?::\d+)?(\?size=\w+)?/,
+        );
   if (!mediaMatch) {
     return undefined;
   }
 
   const mediaMatchType = mediaMatch[1];
-  const entityId: string | number = mediaMatch[2];
+  const entityId: string | number = mediaMatchType === 'botApiSticker'
+    ? decodeURIComponent(mediaMatch[2])
+    : mediaMatch[2];
 
   let entityType: EntityType;
   const params = mediaMatch[3];
-  const sizeType = params?.replace('?size=', '') as SizeType || undefined;
+  const sizeType = params?.startsWith('?size=') ? params.replace('?size=', '') as SizeType : undefined;
 
   if (mediaMatch[1] === 'avatar' || mediaMatch[1] === 'profile') {
     entityType = getEntityTypeById(entityId);

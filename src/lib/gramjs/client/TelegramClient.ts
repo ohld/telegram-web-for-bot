@@ -380,6 +380,10 @@ class TelegramClient {
     this.botAuthToken = botAuthToken;
   }
 
+  getBotAuthToken() {
+    return this.botAuthToken;
+  }
+
   async setForceHttpTransport(forceHttpTransport: boolean) {
     this._shouldForceHttpTransport = forceHttpTransport;
     this.disconnect();

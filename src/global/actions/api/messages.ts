@@ -182,9 +182,12 @@ const AUTOLOGIN_TOKEN_KEY = 'autologin_token';
 const uploadProgressCallbacks = new Map<MessageKey, ApiOnProgress>();
 
 const runDebouncedForMarkRead = debounce((cb) => cb(), 500, false);
-const BOT_CHANNEL_HISTORY_PAGE_SIZE = 20;
-const botChannelHistoryRequestKeys = new Set<string>();
-const botChannelHistoryEmptyPageKeys = new Set<string>();
+const BOT_KNOWN_HISTORY_PAGE_SIZE = 20;
+const BOT_KNOWN_HISTORY_MAX_PAGE_REQUESTS = 5;
+const BOT_KNOWN_HISTORY_TARGET_SIZE = MESSAGE_LIST_SLICE / 2;
+const botKnownHistoryRequestKeys = new Set<string>();
+const botKnownHistoryEmptyPageKeys = new Set<string>();
+const messageRequestKeys = new Set<string>();
 
 addActionHandler('loadViewportMessages', (global, actions, payload): ActionReturnType => {
   const {
@@ -224,9 +227,9 @@ addActionHandler('loadViewportMessages', (global, actions, payload): ActionRetur
     const result = updateBotLocalViewport(global, chatId, threadId, direction, tabId);
     global = result.global;
 
-    if (!isBudgetPreload && shouldLoadBotChannelHistory(chat, threadId, result)) {
+    if (!isBudgetPreload && shouldLoadBotKnownHistory(threadId, result)) {
       onTickEnd(() => {
-        void loadBotChannelViewportMessages(chat, threadId, direction, result.offsetId, tabId, onLoaded);
+        void loadBotKnownHistoryViewportMessages(chat, threadId, direction, result.offsetId, tabId, onLoaded);
       });
     } else {
       onLoaded?.();
@@ -352,25 +355,21 @@ function updateBotLocalViewport<T extends GlobalState>(
 function selectBotLocalHistoryIds<T extends GlobalState>(
   global: T, chatId: string, threadId: ThreadId,
 ) {
-  const listedIds = selectListedIds(global, chatId, threadId);
-  if (listedIds?.length) {
-    return listedIds;
-  }
+  const listedIds = selectListedIds(global, chatId, threadId) || [];
 
   const messagesById = selectChatMessages(global, chatId);
   if (!messagesById) {
-    return [];
+    return listedIds;
   }
 
   const messageIds = Object.values(messagesById)
     .filter((message) => selectThreadIdFromMessage(global, message) === threadId)
     .map(({ id }) => id);
 
-  return orderHistoryIds(messageIds);
+  return orderHistoryIds(unique([...listedIds, ...messageIds]));
 }
 
-function shouldLoadBotChannelHistory(
-  chat: ApiChat,
+function shouldLoadBotKnownHistory(
   threadId: ThreadId,
   result: {
     historyIds: number[];
@@ -379,11 +378,10 @@ function shouldLoadBotChannelHistory(
   },
 ) {
   return !result.areAllLocal
-    && threadId === MAIN_THREAD_ID
-    && (isChatChannel(chat) || isChatSuperGroup(chat));
+    && threadId === MAIN_THREAD_ID;
 }
 
-async function loadBotChannelViewportMessages(
+async function loadBotKnownHistoryViewportMessages(
   chat: ApiChat,
   threadId: ThreadId,
   direction: LoadMoreDirection,
@@ -394,33 +392,17 @@ async function loadBotChannelViewportMessages(
   let global = getGlobal();
   const chatId = chat.id;
   const historyIds = selectBotLocalHistoryIds(global, chatId, threadId);
-  const anchorId = getBotChannelHistoryAnchorId(global, chatId, direction, offsetId, historyIds);
+  const anchorId = getBotKnownHistoryAnchorId(global, chatId, direction, offsetId, historyIds);
   if (!anchorId || isLocalMessageId(anchorId)) {
     onLoaded?.();
     return;
   }
 
-  const messageIds = buildBotChannelHistoryMessageIds(anchorId, direction);
-  if (!messageIds.length) {
-    onLoaded?.();
-    return;
-  }
-
-  const requestKey = getBotChannelHistoryRequestKey(chatId, direction, anchorId);
-  if (botChannelHistoryRequestKeys.has(requestKey) || botChannelHistoryEmptyPageKeys.has(requestKey)) {
-    onLoaded?.();
-    return;
-  }
-
-  botChannelHistoryRequestKeys.add(requestKey);
-  const messages = await callApi('fetchMessagesById', {
-    chat,
-    messageIds,
-  }).catch(() => undefined);
-  botChannelHistoryRequestKeys.delete(requestKey);
+  const anchorMessages = await fetchMissingBotKnownHistoryAnchorMessage(chat, threadId, anchorId);
+  const historyMessages = await fetchBotKnownHistoryMessages(chat, threadId, direction, anchorId);
+  const messages = anchorMessages.length ? [...anchorMessages, ...historyMessages] : historyMessages;
 
   if (!messages?.length) {
-    botChannelHistoryEmptyPageKeys.add(requestKey);
     onLoaded?.();
     return;
   }
@@ -440,7 +422,116 @@ async function loadBotChannelViewportMessages(
   onLoaded?.();
 }
 
-function getBotChannelHistoryAnchorId<T extends GlobalState>(
+async function fetchBotKnownHistoryMessages(
+  chat: ApiChat,
+  threadId: ThreadId,
+  direction: LoadMoreDirection,
+  initialAnchorId: number,
+) {
+  const messages: ApiMessage[] = [];
+  const chatId = chat.id;
+  const historyDirection = getBotKnownHistoryRequestDirection(direction);
+  let global: GlobalState;
+  let anchorId: number | undefined = initialAnchorId;
+
+  for (let i = 0; i < BOT_KNOWN_HISTORY_MAX_PAGE_REQUESTS; i++) {
+    if (!anchorId) {
+      break;
+    }
+
+    const messageIds = buildBotKnownHistoryMessageIds(anchorId, historyDirection);
+    if (!messageIds.length) {
+      break;
+    }
+
+    const requestKey = getBotKnownHistoryRequestKey(chatId, historyDirection, anchorId);
+    if (botKnownHistoryRequestKeys.has(requestKey)) {
+      break;
+    }
+
+    if (botKnownHistoryEmptyPageKeys.has(requestKey)) {
+      anchorId = getNextBotKnownHistoryAnchorId(messageIds);
+      continue;
+    }
+
+    botKnownHistoryRequestKeys.add(requestKey);
+    const pageMessages = await callApi('fetchMessagesById', {
+      chat,
+      messageIds,
+    }).catch(() => undefined);
+    botKnownHistoryRequestKeys.delete(requestKey);
+
+    if (!pageMessages) {
+      break;
+    }
+
+    global = getGlobal();
+    const pageMessagesForThread = filterBotKnownHistoryMessages(global, chatId, threadId, pageMessages);
+    if (!pageMessagesForThread.length) {
+      botKnownHistoryEmptyPageKeys.add(requestKey);
+      anchorId = getNextBotKnownHistoryAnchorId(messageIds);
+      continue;
+    }
+
+    messages.push(...pageMessagesForThread);
+
+    if (messages.length >= BOT_KNOWN_HISTORY_TARGET_SIZE) {
+      break;
+    }
+
+    anchorId = getNextBotKnownHistoryAnchorId(messageIds);
+  }
+
+  return messages;
+}
+
+async function fetchMissingBotKnownHistoryAnchorMessage(
+  chat: ApiChat,
+  threadId: ThreadId,
+  anchorId: number,
+) {
+  if (isLocalMessageId(anchorId)) {
+    return [];
+  }
+
+  const chatId = chat.id;
+  let currentGlobal = getGlobal();
+  if (selectChatMessage(currentGlobal, chatId, anchorId)) {
+    return [];
+  }
+
+  const requestKey = getMessageRequestKey(chatId, anchorId);
+  if (messageRequestKeys.has(requestKey)) {
+    return [];
+  }
+
+  messageRequestKeys.add(requestKey);
+  const messages = await callApi('fetchMessagesById', {
+    chat,
+    messageIds: [anchorId],
+  }).catch(() => undefined);
+  messageRequestKeys.delete(requestKey);
+
+  if (!messages?.length) {
+    return [];
+  }
+
+  currentGlobal = getGlobal();
+  return filterBotKnownHistoryMessages(currentGlobal, chatId, threadId, messages);
+}
+
+function filterBotKnownHistoryMessages<T extends GlobalState>(
+  global: T,
+  chatId: string,
+  threadId: ThreadId,
+  messages: ApiMessage[],
+) {
+  return messages.filter((message) => {
+    return message.chatId === chatId && selectThreadIdFromMessage(global, message) === threadId;
+  });
+}
+
+function getBotKnownHistoryAnchorId<T extends GlobalState>(
   global: T,
   chatId: string,
   direction: LoadMoreDirection,
@@ -462,11 +553,15 @@ function getBotChannelHistoryAnchorId<T extends GlobalState>(
   return selectChatLastMessageId(global, chatId) || historyIds[historyIds.length - 1];
 }
 
-function buildBotChannelHistoryMessageIds(anchorId: number, direction: LoadMoreDirection) {
+function getBotKnownHistoryRequestDirection(direction: LoadMoreDirection) {
+  return direction === LoadMoreDirection.Forwards ? LoadMoreDirection.Forwards : LoadMoreDirection.Backwards;
+}
+
+function buildBotKnownHistoryMessageIds(anchorId: number, direction: LoadMoreDirection) {
   const isForwards = direction === LoadMoreDirection.Forwards;
   const messageIds: number[] = [];
 
-  for (let i = 1; i <= BOT_CHANNEL_HISTORY_PAGE_SIZE; i++) {
+  for (let i = 1; i <= BOT_KNOWN_HISTORY_PAGE_SIZE; i++) {
     const id = isForwards ? anchorId + i : anchorId - i;
     if (id <= 0) {
       break;
@@ -478,7 +573,11 @@ function buildBotChannelHistoryMessageIds(anchorId: number, direction: LoadMoreD
   return messageIds;
 }
 
-function getBotChannelHistoryRequestKey(chatId: string, direction: LoadMoreDirection, anchorId: number) {
+function getNextBotKnownHistoryAnchorId(messageIds: number[]) {
+  return messageIds[messageIds.length - 1];
+}
+
+function getBotKnownHistoryRequestKey(chatId: string, direction: LoadMoreDirection, anchorId: number) {
   return `${chatId}-${direction}-${anchorId}`;
 }
 
@@ -513,7 +612,17 @@ addActionHandler('loadMessage', async (global, actions, payload): Promise<void> 
     return;
   }
 
-  const result = await callApi('fetchMessage', { chat, messageId });
+  const requestKey = getMessageRequestKey(chat.id, messageId);
+  if (messageRequestKeys.has(requestKey)) {
+    return;
+  }
+
+  messageRequestKeys.add(requestKey);
+  const result = await callApi('fetchMessage', { chat, messageId })
+    .catch(() => undefined)
+    .finally(() => {
+      messageRequestKeys.delete(requestKey);
+    });
   if (!result) {
     return undefined;
   }
@@ -536,6 +645,10 @@ addActionHandler('loadMessage', async (global, actions, payload): Promise<void> 
   global = updateChatMessage(global, chat.id, messageId, result.message);
   setGlobal(global);
 });
+
+function getMessageRequestKey(chatId: string, messageId: number) {
+  return `${chatId}-${messageId}`;
+}
 
 addActionHandler('loadMessagesById', async (global, actions, payload): Promise<void> => {
   const { chatId, messageIds } = payload;
@@ -1562,6 +1675,10 @@ addActionHandler('clearWebPagePreview', (global, actions, payload): ActionReturn
 });
 
 addActionHandler('sendPollVote', (global, actions, payload): ActionReturnType => {
+  if (isCurrentUserBot(global)) {
+    return;
+  }
+
   const { chatId, messageId, options } = payload;
   const chat = selectChat(global, chatId);
 
@@ -1649,6 +1766,10 @@ addActionHandler('appendTodoList', (global, actions, payload): ActionReturnType 
 });
 
 addActionHandler('cancelPollVote', (global, actions, payload): ActionReturnType => {
+  if (isCurrentUserBot(global)) {
+    return;
+  }
+
   const { chatId, messageId } = payload;
   const chat = selectChat(global, chatId);
 

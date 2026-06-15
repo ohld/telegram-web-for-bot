@@ -5,6 +5,8 @@ import { throttle } from './schedulers';
 let showError = true;
 let error: Error | undefined;
 
+const RESOURCE_ERROR_TAGS = new Set(['IMG', 'VIDEO', 'AUDIO', 'SOURCE', 'LINK', 'SCRIPT']);
+
 window.addEventListener('error', handleErrorEvent);
 window.addEventListener('unhandledrejection', handleErrorEvent);
 
@@ -44,6 +46,10 @@ export function handleError(err: Error) {
 }
 
 function handleErrorEvent(e: ErrorEvent | PromiseRejectionEvent) {
+  if (isResourceError(e)) {
+    return;
+  }
+
   if (e instanceof ErrorEvent) {
     // https://stackoverflow.com/questions/49384120/resizeobserver-loop-limit-exceeded
     if (e.message === 'ResizeObserver loop limit exceeded') {
@@ -58,6 +64,14 @@ function handleErrorEvent(e: ErrorEvent | PromiseRejectionEvent) {
 
   e.preventDefault();
   handleError(e instanceof ErrorEvent ? (e.error || e.message) : e.reason);
+}
+
+function isResourceError(e: Event | PromiseRejectionEvent) {
+  const target = e instanceof PromiseRejectionEvent && e.reason instanceof Event
+    ? e.reason.target
+    : e.target;
+
+  return target instanceof Element && RESOURCE_ERROR_TAGS.has(target.tagName);
 }
 
 function getErrorMessage(err: Error) {

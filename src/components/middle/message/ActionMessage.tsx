@@ -695,6 +695,7 @@ const ActionMessage = ({
           isOpen={isContextMenuOpen}
           anchor={contextMenuAnchor}
           message={message}
+          threadId={threadId}
           messageListType="thread"
           className={styles.contextContainer}
           onClose={handleContextMenuClose}

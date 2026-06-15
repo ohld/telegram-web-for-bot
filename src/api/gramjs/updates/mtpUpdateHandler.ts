@@ -391,6 +391,16 @@ export function updater(update: Update) {
       chatId: getApiChatIdFromMtpPeer(update.peer),
       reactions: buildMessageReactionsFromCounts(update.reactions),
     });
+  } else if (update instanceof GramJs.UpdateBotMessageReaction) {
+    sendApiUpdate({
+      '@type': 'updateMessageReactionDelta',
+      id: update.msgId,
+      chatId: getApiChatIdFromMtpPeer(update.peer),
+      actorId: getApiChatIdFromMtpPeer(update.actor),
+      date: update.date,
+      oldReactions: update.oldReactions.map((reaction) => buildApiReaction(reaction)).filter(Boolean),
+      newReactions: update.newReactions.map((reaction) => buildApiReaction(reaction)).filter(Boolean),
+    });
   } else if (update instanceof GramJs.UpdateMessageExtendedMedia) {
     const chatId = getApiChatIdFromMtpPeer(update.peer);
     const isBought = update.extendedMedia[0] instanceof GramJs.MessageExtendedMedia;
@@ -1200,8 +1210,7 @@ export function updater(update: Update) {
   } else if (update instanceof GramJs.UpdateMessageID || update instanceof GramJs.UpdateShortSentMessage) {
     // Do nothing, handled when sending the message
   } else if (
-    update instanceof GramJs.UpdateBotMessageReaction
-    || update instanceof GramJs.UpdateChannelParticipant
+    update instanceof GramJs.UpdateChannelParticipant
     || update instanceof GramJs.UpdateBotStopped
   ) {
     // Do nothing; bot-only qts state is handled by the update manager

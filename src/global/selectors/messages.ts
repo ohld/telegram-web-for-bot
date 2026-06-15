@@ -61,6 +61,7 @@ import {
   isChatGroup,
   isChatSuperGroup,
   isCommonBoxChat,
+  isCurrentUserBot,
   isExpiredMessage,
   isForwardedMessage,
   isMessageDocumentSticker,
@@ -488,11 +489,14 @@ export function selectCanReplyToMessage<T extends GlobalState>(global: T, messag
   const isMessageThread = Boolean(!threadInfo?.isCommentsInfo && threadInfo?.fromChannelId);
   const chatFullInfo = selectChatFullInfo(global, chat.id);
   const topic = selectTopic(global, chat.id, threadId);
-  const canPostInChat = getCanPostInChat(chat, topic, isMessageThread, chatFullInfo);
+  const user = selectUser(global, chat.id);
+  const canManageBotForumTopics = Boolean(chat.isBotForum && user?.canManageBotForumTopics);
+  const canPostInChat = canManageBotForumTopics || getCanPostInChat(chat, topic, isMessageThread, chatFullInfo);
   if (!canPostInChat) return false;
 
   const messageTopic = selectTopicFromMessage(global, message);
-  return !messageTopic || !messageTopic.isClosed || messageTopic.isOwner || getHasAdminRight(chat, 'manageTopics');
+  return !messageTopic || !messageTopic.isClosed || messageTopic.isOwner || getHasAdminRight(chat, 'manageTopics')
+    || canManageBotForumTopics;
 }
 
 export function selectCanForwardMessage<T extends GlobalState>(global: T, message: ApiMessage) {
@@ -652,7 +656,7 @@ export function selectAllowedMessageActionsSlow<T extends GlobalState>(
   const hasChosenPollAnswer = Boolean(
     poll && Object.values(poll.results.resultByOption || {}).some((result) => result.isChosen),
   );
-  const canRevote = poll && !poll.summary.isClosed && !poll.summary.isRevoteDisabled
+  const canRevote = !isCurrentUserBot(global) && poll && !poll.summary.isClosed && !poll.summary.isRevoteDisabled
     && hasChosenPollAnswer;
   const canClosePoll = hasMessageEditRight && poll && !poll.summary.isClosed && !isForwarded;
 

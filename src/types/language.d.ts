@@ -1322,6 +1322,8 @@ export interface LangPair {
   'GiftPremiumDescriptionLink': undefined;
   'StarsGiftHeader': undefined;
   'StarsGiftHeaderSelf': undefined;
+  'BotStarGiftDescription': undefined;
+  'BotGiftsEmpty': undefined;
   'StarGiftDescriptionCollectibles': undefined;
   'StarGiftDescriptionSelf': undefined;
   'GiftLimited': undefined;
@@ -1621,6 +1623,7 @@ export interface LangPair {
   'ActionStarGiftCrafted': undefined;
   'ActionStarGiftTransferredUnknown': undefined;
   'ActionStarGiftNoConvertTextYou': undefined;
+  'ActionStarGiftChannelNoConvertText': undefined;
   'ActionStarGiftDisplaying': undefined;
   'ActionStarGiftChannelDisplaying': undefined;
   'ActionStarGiftUpgradeTextYou': undefined;
@@ -1678,6 +1681,9 @@ export interface LangPair {
   'GetMoreStarsLinkText': undefined;
   'StarsGiftCompleted': undefined;
   'GiftSent': undefined;
+  'BotGiftMessageTooLong': undefined;
+  'BotGiftLimitedChannelError': undefined;
+  'BotGiftPremiumRequired': undefined;
   'PrivacyDescriptionMessagesContactsAndPremium': undefined;
   'PrivacyChargeForMessages': undefined;
   'PrivacyDescriptionChargeForMessages': undefined;

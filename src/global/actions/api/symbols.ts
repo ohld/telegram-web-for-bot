@@ -12,6 +12,7 @@ import * as langProvider from '../../../util/oldLangProvider';
 import { pause, throttle } from '../../../util/schedulers';
 import searchWords from '../../../util/searchWords';
 import { callApi } from '../../../api/gramjs';
+import { isCurrentUserBot } from '../../helpers';
 import {
   addActionHandler,
   getGlobal, setGlobal,
@@ -75,6 +76,9 @@ addActionHandler('loadAddedStickers', async (global, actions): Promise<void> => 
     added: {
       setIds: addedSetIds = [],
     },
+    observed: {
+      setIds: observedSetIds = [],
+    },
     setsById: cached,
   } = global.stickers;
   const {
@@ -82,18 +86,23 @@ addActionHandler('loadAddedStickers', async (global, actions): Promise<void> => 
       setIds: customEmojiSetIds = [],
     },
   } = global.customEmojis;
-  const setIdsToLoad = [...addedSetIds, ...customEmojiSetIds];
+  const setIdsToLoad = [...addedSetIds, ...observedSetIds, ...customEmojiSetIds];
   if (!setIdsToLoad.length) {
     return;
   }
 
   for (let i = 0; i < setIdsToLoad.length; i++) {
     const id = setIdsToLoad[i];
-    if (cached[id]?.stickers) {
+    const cachedSet = cached[id];
+    if (!cachedSet) {
+      continue;
+    }
+
+    if (cachedSet.stickers && cachedSet.count === cachedSet.stickers.length) {
       continue; // Already loaded
     }
     actions.loadStickers({
-      stickerSetInfo: { id, accessHash: cached[id].accessHash },
+      stickerSetInfo: { id, accessHash: cachedSet.accessHash },
     });
 
     if (i % ADDED_SETS_THROTTLE_CHUNK === 0 && i > 0) {
@@ -402,6 +411,25 @@ addActionHandler('loadGenericEmojiEffects', async (global): Promise<void> => {
 });
 
 addActionHandler('loadSavedGifs', async (global): Promise<void> => {
+  if (isCurrentUserBot(global)) {
+    if (global.gifs.saved.gifs) {
+      return;
+    }
+
+    global = {
+      ...global,
+      gifs: {
+        ...global.gifs,
+        saved: {
+          ...global.gifs.saved,
+          gifs: [],
+        },
+      },
+    };
+    setGlobal(global);
+    return;
+  }
+
   const { hash } = global.gifs.saved;
 
   const savedGifs = await callApi('fetchSavedGifs', { hash });
@@ -526,6 +554,21 @@ addActionHandler('unfaveSticker', (global, actions, payload): ActionReturnType =
 
 addActionHandler('removeRecentSticker', async (global, actions, payload): Promise<void> => {
   const { sticker } = payload;
+
+  if (isCurrentUserBot(global)) {
+    global = {
+      ...global,
+      stickers: {
+        ...global.stickers,
+        recent: {
+          ...global.stickers.recent,
+          stickers: global.stickers.recent.stickers.filter(({ id }) => id !== sticker.id),
+        },
+      },
+    };
+    setGlobal(global);
+    return;
+  }
 
   const result = await callApi('removeRecentSticker', { sticker });
 

@@ -19,7 +19,7 @@ import type {
 import type { ObserveFn } from '../../../../hooks/useIntersectionObserver';
 import { type MediaViewerMedia, MediaViewerOrigin, type ThemeKey } from '../../../../types';
 
-import { getMessageHtmlId } from '../../../../global/helpers';
+import { getMessageHtmlId, isCurrentUserBot as selectIsCurrentUserBot } from '../../../../global/helpers';
 import { selectPeer } from '../../../../global/selectors';
 import buildClassName from '../../../../util/buildClassName';
 import { buildCollectionByKey, shuffle } from '../../../../util/iteratees';
@@ -59,6 +59,7 @@ type OwnProps = {
 };
 
 type StateProps = {
+  isCurrentUserBot: boolean;
   pollMaxAnswers: number;
 };
 
@@ -78,6 +79,7 @@ const Poll = ({
   isInScheduled,
   observeIntersectionForLoading,
   observeIntersectionForPlaying,
+  isCurrentUserBot,
   pollMaxAnswers,
 }: OwnProps & StateProps) => {
   const {
@@ -111,11 +113,11 @@ const Poll = ({
   const activeCloseDate = !summary.isClosed && summary.closeDate && summary.closeDate > serverTime
     ? summary.closeDate
     : undefined;
-  const areResultsHiddenForCurrentUser = Boolean(
+  const areResultsHiddenForCurrentUser = !isCurrentUserBot && Boolean(
     summary.shouldHideResultsUntilClose && activeCloseDate && !summary.isCreator,
   );
   const hasMaskedResults = areResultsHiddenForCurrentUser && hasChosenAnswer;
-  const canVote = !summary.isClosed && !hasChosenAnswer;
+  const canVote = !isCurrentUserBot && !summary.isClosed && !hasChosenAnswer;
   const hasExplanation = summary.isQuiz && Boolean(results.solution?.trim() || results.solutionMedia);
   const hasOptionMedia = useMemo(
     () => answers.some((answer) => hasPollOptionMedia(answer)),
@@ -131,7 +133,11 @@ const Poll = ({
   const canShowResultsPanel = hasChosenAnswer && summary.isPublic && hasResultData && !areResultsHiddenForCurrentUser;
   const canShowExplanation = hasExplanation && hasChosenAnswer;
   const canAppendAnswer = Boolean(
-    summary.canAddAnswers && !summary.isClosed && !isInScheduled && answers.length < pollMaxAnswers,
+    !isCurrentUserBot
+    && summary.canAddAnswers
+    && !summary.isClosed
+    && !isInScheduled
+    && answers.length < pollMaxAnswers,
   );
   const trimmedNewAnswerText = newAnswerText.trim().substring(0, MAX_OPTION_LENGTH);
 
@@ -655,7 +661,7 @@ const Poll = ({
                 hasResults={areInlineResultsVisible || hasMaskedResults}
                 hasMaskedResults={hasMaskedResults}
                 isSendingVote={isSendingVote}
-                isInScheduled={isInScheduled}
+                canSelect={canVote && !isSendingVote && !isViewingAuthorResults}
                 isSelected={selectedOptionsSet.has(answer.option)}
                 isMultipleChoice={isMultipleChoice}
                 recentVoters={hasMaskedResults ? undefined : resolvePeers(optionResult?.recentVoterIds)}
@@ -865,6 +871,7 @@ function onPreviewClick(onOpenPreview: (previewIndex: number) => void) {
 
 export default memo(withGlobal<OwnProps>((global): Complete<StateProps> => {
   return {
+    isCurrentUserBot: selectIsCurrentUserBot(global),
     pollMaxAnswers: global.appConfig.pollMaxAnswers,
   };
 })(Poll));

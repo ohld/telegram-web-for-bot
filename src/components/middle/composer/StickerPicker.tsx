@@ -1,4 +1,3 @@
-import type { FC } from '../../../lib/teact/teact';
 import { memo, useEffect, useMemo, useRef } from '../../../lib/teact/teact';
 import { getActions, withGlobal } from '../../../global';
 
@@ -74,6 +73,7 @@ type StateProps = {
   stickerSetsById: Record<string, ApiStickerSet>;
   chatStickerSetId?: string;
   addedSetIds?: string[];
+  observedSetIds?: string[];
   canAnimate?: boolean;
   isSavedMessages?: boolean;
   isCurrentUserPremium?: boolean;
@@ -81,7 +81,7 @@ type StateProps = {
 
 const HEADER_BUTTON_WIDTH = 2.5 * REM; // px (including margin)
 
-const StickerPicker: FC<OwnProps & StateProps> = ({
+const StickerPicker = ({
   chat,
   threadId,
   className,
@@ -94,6 +94,7 @@ const StickerPicker: FC<OwnProps & StateProps> = ({
   effectStickers,
   effectEmojis,
   addedSetIds,
+  observedSetIds,
   stickerSetsById,
   chatStickerSetId,
   canAnimate,
@@ -103,9 +104,11 @@ const StickerPicker: FC<OwnProps & StateProps> = ({
   idPrefix,
   onStickerSelect,
   isForEffects,
-}) => {
+}: OwnProps & StateProps) => {
   const {
     loadRecentStickers,
+    loadStickerSets,
+    loadAddedStickers,
     addRecentSticker,
     unfaveSticker,
     faveSticker,
@@ -134,8 +137,9 @@ const StickerPicker: FC<OwnProps & StateProps> = ({
   } = useStickerPickerObservers(containerRef, headerRef, prefix, isHidden);
 
   const lang = useOldLang();
+  const hasObservedSetIds = Boolean(observedSetIds?.length);
 
-  const areAddedLoaded = Boolean(addedSetIds);
+  const areAddedLoaded = Boolean(addedSetIds || hasObservedSetIds);
 
   const allSets = useMemo(() => {
     if (isForEffects && effectStickers) {
@@ -162,7 +166,7 @@ const StickerPicker: FC<OwnProps & StateProps> = ({
       return effectSets;
     }
 
-    if (!addedSetIds) {
+    if (!addedSetIds && !hasObservedSetIds) {
       return MEMO_EMPTY_ARRAY;
     }
 
@@ -188,7 +192,10 @@ const StickerPicker: FC<OwnProps & StateProps> = ({
       });
     }
 
-    const userSetIds = [...(addedSetIds || [])];
+    const userSetIds = [
+      ...(observedSetIds || []),
+      ...(addedSetIds || []),
+    ];
     if (chatStickerSetId) {
       userSetIds.unshift(chatStickerSetId);
     }
@@ -201,6 +208,8 @@ const StickerPicker: FC<OwnProps & StateProps> = ({
     ];
   }, [
     addedSetIds,
+    hasObservedSetIds,
+    observedSetIds,
     stickerSetsById,
     favoriteStickers,
     recentStickers,
@@ -218,10 +227,24 @@ const StickerPicker: FC<OwnProps & StateProps> = ({
 
   useEffect(() => {
     if (!loadAndPlay) return;
+    if (!addedSetIds && !hasObservedSetIds) {
+      loadStickerSets();
+    } else {
+      loadAddedStickers();
+    }
     loadRecentStickers();
     if (!canSendStickers) return;
     sendMessageAction({ type: 'chooseSticker' });
-  }, [canSendStickers, loadAndPlay, loadRecentStickers, sendMessageAction]);
+  }, [
+    addedSetIds,
+    canSendStickers,
+    hasObservedSetIds,
+    loadAddedStickers,
+    loadAndPlay,
+    loadRecentStickers,
+    loadStickerSets,
+    sendMessageAction,
+  ]);
 
   const canRenderContents = useAsyncRendering([], SLIDE_TRANSITION_DURATION);
   const shouldRenderContents = areAddedLoaded && canRenderContents
@@ -408,6 +431,7 @@ export default memo(withGlobal<OwnProps>(
     const {
       setsById,
       added,
+      observed,
       recent,
       favorite,
       effect,
@@ -425,6 +449,7 @@ export default memo(withGlobal<OwnProps>(
       favoriteStickers: favorite.stickers,
       stickerSetsById: setsById,
       addedSetIds: added.setIds,
+      observedSetIds: observed.setIds,
       canAnimate: selectShouldLoopStickers(global),
       isSavedMessages,
       isCurrentUserPremium: selectIsCurrentUserPremium(global),

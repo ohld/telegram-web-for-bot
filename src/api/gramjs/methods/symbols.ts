@@ -21,6 +21,13 @@ import { sendApiUpdate } from '../updates/apiUpdateEmitter';
 import { invokeRequest, isBotApiSession } from './client';
 
 export async function fetchCustomEmojiSets({ hash }: { hash?: string }) {
+  if (isBotApiSession()) {
+    return {
+      hash: DEFAULT_PRIMITIVES.STRING,
+      sets: [],
+    };
+  }
+
   const allStickers = await invokeRequest(new GramJs.messages.GetEmojiStickers({
     hash: hash ? BigInt(hash) : DEFAULT_PRIMITIVES.BIGINT,
   }));
@@ -42,6 +49,13 @@ export async function fetchCustomEmojiSets({ hash }: { hash?: string }) {
 }
 
 export async function fetchStickerSets({ hash }: { hash?: string }) {
+  if (isBotApiSession()) {
+    return {
+      hash: DEFAULT_PRIMITIVES.STRING,
+      sets: [],
+    };
+  }
+
   const allStickers = await invokeRequest(new GramJs.messages.GetAllStickers({
     hash: hash ? BigInt(hash) : DEFAULT_PRIMITIVES.BIGINT,
   }));
@@ -63,6 +77,10 @@ export async function fetchStickerSets({ hash }: { hash?: string }) {
 }
 
 export async function fetchRecentStickers({ hash }: { hash?: string }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetRecentStickers({
     hash: hash ? BigInt(hash) : DEFAULT_PRIMITIVES.BIGINT,
   }));
@@ -78,6 +96,10 @@ export async function fetchRecentStickers({ hash }: { hash?: string }) {
 }
 
 export async function fetchFavoriteStickers({ hash }: { hash?: string }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.GetFavedStickers({
     hash: hash ? BigInt(hash) : DEFAULT_PRIMITIVES.BIGINT,
   }));
@@ -140,6 +162,10 @@ export async function faveSticker({
   sticker: ApiSticker;
   unfave?: boolean;
 }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const id = buildInputDocument(sticker);
   if (!id) return;
   const request = new GramJs.messages.FaveSticker({
@@ -160,6 +186,10 @@ export function removeRecentSticker({
 }: {
   sticker: ApiSticker;
 }) {
+  if (isBotApiSession()) {
+    return true;
+  }
+
   const id = buildInputDocument(sticker);
   if (!id) return;
   const request = new GramJs.messages.SaveRecentSticker({
@@ -171,6 +201,10 @@ export function removeRecentSticker({
 }
 
 export function clearRecentStickers() {
+  if (isBotApiSession()) {
+    return true;
+  }
+
   return invokeRequest(new GramJs.messages.ClearRecentStickers());
 }
 
@@ -399,6 +433,10 @@ export async function fetchSavedGifs({ hash }: { hash?: string }) {
 }
 
 export function saveGif({ gif, shouldUnsave }: { gif: ApiVideo; shouldUnsave?: boolean }) {
+  if (isBotApiSession()) {
+    return true;
+  }
+
   const id = buildInputDocument(gif);
   if (!id) return;
   const request = new GramJs.messages.SaveGif({
@@ -410,6 +448,10 @@ export function saveGif({ gif, shouldUnsave }: { gif: ApiVideo; shouldUnsave?: b
 }
 
 export async function installStickerSet({ stickerSetId, accessHash }: { stickerSetId: string; accessHash: string }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.InstallStickerSet({
     stickerset: buildInputStickerSet(stickerSetId, accessHash),
     archived: false,
@@ -425,6 +467,10 @@ export async function installStickerSet({ stickerSetId, accessHash }: { stickerS
 }
 
 export async function uninstallStickerSet({ stickerSetId, accessHash }: { stickerSetId: string; accessHash: string }) {
+  if (isBotApiSession()) {
+    return undefined;
+  }
+
   const result = await invokeRequest(new GramJs.messages.UninstallStickerSet({
     stickerset: buildInputStickerSet(stickerSetId, accessHash),
   }));

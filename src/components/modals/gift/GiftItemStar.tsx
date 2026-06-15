@@ -4,6 +4,7 @@ import { getActions, withGlobal } from '../../../global';
 import type { ApiStarGift, ApiTypeCurrencyAmount } from '../../../api/types';
 
 import { STARS_CURRENCY_CODE, TON_CURRENCY_CODE } from '../../../config';
+import { isCurrentUserBot as selectIsCurrentUserBot } from '../../../global/helpers';
 import { selectIsCurrentUserPremium } from '../../../global/selectors';
 import buildClassName from '../../../util/buildClassName';
 import { formatStarsAsIcon, formatTonAsIcon } from '../../../util/localization/format';
@@ -32,12 +33,14 @@ export type OwnProps = {
 
 type StateProps = {
   isCurrentUserPremium?: boolean;
+  isCurrentUserBot?: boolean;
 };
 
 const GIFT_STICKER_SIZE = 90;
 
 function GiftItemStar({
-  gift, isResale, isCurrentUserPremium, withTransferBadge, hideBadge, noClickable, observeIntersection, onClick,
+  gift, isResale, isCurrentUserPremium, isCurrentUserBot, withTransferBadge, hideBadge, noClickable,
+  observeIntersection, onClick,
 }: OwnProps & StateProps) {
   const {
     openGiftInfoModal, openPremiumModal, showNotification, checkCanSendGift, openGiftAuctionModal,
@@ -109,6 +112,13 @@ function GiftItemStar({
     }
 
     if (isPremiumRequired && !isCurrentUserPremium) {
+      if (isCurrentUserBot) {
+        showNotification({
+          message: { key: 'BotGiftPremiumRequired' },
+        });
+        return;
+      }
+
       openPremiumModal({
         gift,
       });
@@ -239,6 +249,7 @@ export default memo(
 
     return {
       isCurrentUserPremium,
+      isCurrentUserBot: selectIsCurrentUserBot(global),
     };
   })(GiftItemStar),
 );

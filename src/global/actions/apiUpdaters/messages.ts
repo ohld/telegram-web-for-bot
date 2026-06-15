@@ -1,5 +1,5 @@
 import type {
-  ApiMediaExtendedPreview, ApiMessage, ApiReactions,
+  ApiMediaExtendedPreview, ApiMessage, ApiReaction, ApiReactionCount, ApiReactions,
   MediaContent,
 } from '../../../api/types';
 import type { ActiveEmojiInteraction, ThreadId } from '../../../types';
@@ -28,11 +28,13 @@ import {
   getIsSavedDialog,
   getMessageContent,
   getMessageText,
+  getReactionKey,
   groupMessageIdsByThreadId,
   isActionMessage,
   isCurrentUserBot,
   isDeletedUser,
   isMessageLocal,
+  isSameReaction,
   isUserBot,
   pickMatchingTypingDraftMessage,
 } from '../../helpers';
@@ -1040,6 +1042,18 @@ addActionHandler('apiUpdate', (global, actions, update): ActionReturnType => {
       break;
     }
 
+    case 'updateMessageReactionDelta': {
+      const {
+        chatId, id, actorId, oldReactions, newReactions, date,
+      } = update;
+
+      global = applyReactionDelta(global, actions, {
+        chatId, id, actorId, oldReactions, newReactions, date,
+      });
+      setGlobal(global);
+      break;
+    }
+
     case 'updateMessageExtendedMedia': {
       const {
         chatId, id, extendedMedia, isBought,
@@ -1265,6 +1279,9 @@ function updateReactions<T extends GlobalState>(
   }
 
   const currentReactions = message?.reactions;
+  if (currentReactions) {
+    reactions = mergeReactionsMetadata(currentReactions, reactions);
+  }
 
   // `updateMessageReactions` happens with an interval, so we try to avoid redundant global state updates
   if (currentReactions && areDeepEqual(reactions, currentReactions)) {
@@ -1317,6 +1334,133 @@ function updateReactions<T extends GlobalState>(
   }
 
   return global;
+}
+
+function applyReactionDelta<T extends GlobalState>(
+  global: T,
+  actions: RequiredGlobalActions,
+  {
+    chatId, id, actorId, oldReactions, newReactions, date,
+  }: {
+    chatId: string;
+    id: number;
+    actorId: string;
+    oldReactions: ApiReaction[];
+    newReactions: ApiReaction[];
+    date: number;
+  },
+): T {
+  const message = selectChatMessage(global, chatId, id);
+  const currentReactions = message?.reactions;
+  const reactions = buildReactionsFromDelta(global, currentReactions, actorId, oldReactions, newReactions, date);
+
+  return updateReactions(global, actions, {
+    chatId,
+    id,
+    reactions,
+  });
+}
+
+function buildReactionsFromDelta<T extends GlobalState>(
+  global: T,
+  currentReactions: ApiReactions | undefined,
+  actorId: string,
+  oldReactions: ApiReaction[],
+  newReactions: ApiReaction[],
+  date: number,
+): ApiReactions {
+  const addedReactions = newReactions.filter((reaction) => {
+    return !oldReactions.some((oldReaction) => isSameReaction(oldReaction, reaction));
+  });
+  const removedReactions = oldReactions.filter((reaction) => {
+    return !newReactions.some((newReaction) => isSameReaction(newReaction, reaction));
+  });
+
+  const results = currentReactions?.results ? [...currentReactions.results] : [];
+  removedReactions.forEach((reaction) => {
+    updateReactionResult(results, reaction, -1, undefined, actorId === global.currentUserId);
+  });
+  addedReactions.forEach((reaction, index) => {
+    updateReactionResult(results, reaction, 1, actorId === global.currentUserId ? index : undefined,
+      actorId === global.currentUserId);
+  });
+
+  return {
+    ...(currentReactions || {}),
+    results,
+    recentReactions: buildRecentReactionsFromDelta(currentReactions, actorId, oldReactions, newReactions, date),
+  };
+}
+
+function updateReactionResult(
+  results: ApiReactionCount[],
+  reaction: ApiReaction,
+  diff: number,
+  chosenOrder?: number,
+  shouldUpdateChosenOrder?: boolean,
+) {
+  const index = results.findIndex((result) => isSameReaction(result.reaction, reaction));
+  if (index === -1) {
+    if (diff <= 0) {
+      return;
+    }
+
+    results.push({
+      reaction,
+      count: diff,
+      chosenOrder,
+    });
+    return;
+  }
+
+  const result = results[index];
+  const count = Math.max(0, result.count + diff);
+  if (!count && !result.localAmount) {
+    results.splice(index, 1);
+    return;
+  }
+
+  const updatedResult = {
+    ...result,
+    count,
+  };
+  if (shouldUpdateChosenOrder) {
+    updatedResult.chosenOrder = chosenOrder;
+  }
+
+  results[index] = updatedResult;
+}
+
+function buildRecentReactionsFromDelta(
+  currentReactions: ApiReactions | undefined,
+  actorId: string,
+  oldReactions: ApiReaction[],
+  newReactions: ApiReaction[],
+  date: number,
+) {
+  const changedReactionKeys = new Set([...oldReactions, ...newReactions].map(getReactionKey));
+  const recentReactions = currentReactions?.recentReactions?.filter((reaction) => {
+    return reaction.peerId !== actorId || !changedReactionKeys.has(getReactionKey(reaction.reaction));
+  }) || [];
+
+  return [
+    ...newReactions.map((reaction) => ({
+      peerId: actorId,
+      reaction,
+      addedDate: date,
+    })),
+    ...recentReactions,
+  ];
+}
+
+function mergeReactionsMetadata(currentReactions: ApiReactions, reactions: ApiReactions): ApiReactions {
+  return {
+    ...reactions,
+    canSeeList: reactions.canSeeList ?? currentReactions.canSeeList,
+    areTags: reactions.areTags ?? currentReactions.areTags,
+    recentReactions: reactions.recentReactions || currentReactions.recentReactions,
+    topReactors: reactions.topReactors || currentReactions.topReactors,
+  };
 }
 
 function selectIsBotSession<T extends GlobalState>(global: T) {

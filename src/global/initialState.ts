@@ -232,6 +232,7 @@ export const INITIAL_GLOBAL_STATE: GlobalState = {
   stickers: {
     setsById: {},
     added: {},
+    observed: {},
     recent: {
       stickers: [],
     },

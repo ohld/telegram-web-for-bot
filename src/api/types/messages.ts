@@ -51,6 +51,10 @@ export interface ApiSticker {
   mediaType: 'sticker';
   id: string;
   stickerSetInfo: ApiStickerSetInfo;
+  botApiFileId?: string;
+  botApiFileUniqueId?: string;
+  botApiPreviewFileId?: string;
+  botApiFileSize?: number;
   emoji?: string;
   isCustomEmoji?: boolean;
   isLottie: boolean;

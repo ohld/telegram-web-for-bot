@@ -1,4 +1,3 @@
-import type { FC } from '@teact';
 import {
   memo, useEffect,
   useMemo, useRef, useState } from '@teact';
@@ -18,7 +17,11 @@ import type { TabState } from '../../../global/types';
 import type { ResaleGiftsFilterOptions, StarGiftCategory } from '../../../types';
 
 import { STARS_CURRENCY_CODE } from '../../../config';
-import { getUserFullName } from '../../../global/helpers';
+import {
+  getUserFullName,
+  isChatChannel,
+  isCurrentUserBot as selectIsCurrentUserBot,
+} from '../../../global/helpers';
 import { getPeerTitle, isApiPeerChat, isApiPeerUser } from '../../../global/helpers/peers';
 import { selectPeer, selectTabState, selectUserFullInfo } from '../../../global/selectors';
 import buildClassName from '../../../util/buildClassName';
@@ -65,6 +68,7 @@ type StateProps = {
   starBalance?: ApiStarsAmount;
   peer?: ApiPeer;
   currentUserId?: string;
+  isCurrentUserBot?: boolean;
   disallowedGifts?: ApiDisallowedGifts;
   resaleGiftsCount?: number;
   areResaleGiftsLoading?: boolean;
@@ -81,7 +85,7 @@ const CATEGORY_LIST_STICKY_TOP = 3.5 * REM;
 
 const runThrottledForScroll = throttle((cb) => cb(), SCROLL_THROTTLE, true);
 
-const GiftModal: FC<OwnProps & StateProps> = ({
+const GiftModal = ({
   modal,
   starGiftsById,
   starGiftIdsByCategory,
@@ -90,13 +94,14 @@ const GiftModal: FC<OwnProps & StateProps> = ({
   starBalance,
   peer,
   currentUserId,
+  isCurrentUserBot,
   disallowedGifts,
   resaleGiftsCount,
   areResaleGiftsLoading,
   selectedResaleGift,
   resaleFilter,
   tabId,
-}) => {
+}: OwnProps & StateProps) => {
   const {
     closeGiftModal,
     openGiftInfoModal,
@@ -152,16 +157,17 @@ const GiftModal: FC<OwnProps & StateProps> = ({
   const lang = useLang();
   const allGifts = renderingModal?.gifts;
   const filteredGifts = useMemo(() => {
-    return allGifts?.sort((prevGift, gift) => prevGift.months - gift.months)
-      .filter((gift) => gift.users === 1 && gift.currency !== STARS_CURRENCY_CODE);
+    return allGifts && buildFilteredPremiumGifts(allGifts);
   }, [allGifts]);
 
   const giftsByStars = useMemo(() => {
-    const mapGifts = new Map();
+    const mapGifts = new Map<ApiPremiumGiftCodeOption, ApiPremiumGiftCodeOption>();
 
     if (!filteredGifts) return mapGifts;
 
     filteredGifts.forEach((gift) => {
+      if (gift.currency === STARS_CURRENCY_CODE) return;
+
       const giftByStars = allGifts?.find(
         (starsGift) => starsGift.currency === STARS_CURRENCY_CODE
           && starsGift.months === gift.months,
@@ -175,7 +181,9 @@ const GiftModal: FC<OwnProps & StateProps> = ({
   }, [allGifts, filteredGifts]);
 
   const baseGift = useMemo(() => {
-    return filteredGifts?.reduce((prev, gift) => (prev.amount < gift.amount ? prev : gift));
+    if (!filteredGifts?.length) return undefined;
+
+    return filteredGifts.reduce((prev, gift) => (prev.amount < gift.amount ? prev : gift));
   }, [filteredGifts]);
 
   const {
@@ -184,6 +192,7 @@ const GiftModal: FC<OwnProps & StateProps> = ({
 
   const isResaleScreen = Boolean(selectedResaleGift) && !selectedGift;
   const isGiftScreen = Boolean(selectedGift);
+  const selectedGiftByStars = selectedGift && 'months' in selectedGift ? giftsByStars.get(selectedGift) : undefined;
   const shouldShowHeader = isResaleScreen || isGiftScreen || shouldShowMainScreenHeader;
   const isHeaderForStarGifts = isGiftScreen ? isGiftScreenHeaderForStarGifts : isMainScreenHeaderForStarGifts;
 
@@ -252,6 +261,10 @@ const GiftModal: FC<OwnProps & StateProps> = ({
   }, { withNodes: true });
 
   const starGiftDescription = useMemo(() => {
+    if (isCurrentUserBot) {
+      return lang('BotStarGiftDescription', undefined, { withNodes: true, withMarkdown: true });
+    }
+
     if (chat) {
       return lang('StarGiftDescriptionChannel', { peer: getPeerTitle(lang, chat) }, {
         withNodes: true,
@@ -273,7 +286,7 @@ const GiftModal: FC<OwnProps & StateProps> = ({
     return lang('StarGiftDescription', {
       user: getUserFullName(user)!,
     }, { withNodes: true, withMarkdown: true });
-  }, [chat, isSelf, selectedCategory, user, lang]);
+  }, [chat, isCurrentUserBot, isSelf, selectedCategory, user, lang]);
 
   function renderGiftPremiumHeader() {
     return (
@@ -372,6 +385,10 @@ const GiftModal: FC<OwnProps & StateProps> = ({
 
       const { isLimited, availabilityResale } = gift;
 
+      if (isCurrentUserBot && chat && isChatChannel(chat) && isLimited) {
+        return false;
+      }
+
       if (areLimitedStarGiftsDisallowed && isLimited) {
         return !areUniqueStarGiftsDisallowed ? availabilityResale : false;
       }
@@ -381,11 +398,29 @@ const GiftModal: FC<OwnProps & StateProps> = ({
       return true;
     });
 
+    if (!starGiftsById || !starGiftIdsByCategory) {
+      return (
+        <p className={buildClassName(styles.description, styles.center)}>
+          {lang('Loading')}
+        </p>
+      );
+    }
+
+    if (!filteredGiftIds?.length) {
+      return (
+        <p className={buildClassName(styles.description, styles.center)}>
+          {lang(isCurrentUserBot ? 'BotGiftsEmpty' : 'GiftSearchEmpty')}
+        </p>
+      );
+    }
+
     return (
       <div className={styles.starGiftsContainer}>
         {starGiftsById && filteredGiftIds?.flatMap((giftId) => {
           const gift = starGiftsById[giftId];
-          const shouldShowResale = Boolean(gift.availabilityResale) && !areUniqueStarGiftsDisallowed;
+          const shouldShowResale = !isCurrentUserBot
+            && Boolean(gift.availabilityResale)
+            && !areUniqueStarGiftsDisallowed;
           const shouldDuplicateAsResale = shouldShowResale && !gift.isSoldOut && !areLimitedStarGiftsDisallowed;
 
           const elements = [
@@ -516,10 +551,10 @@ const GiftModal: FC<OwnProps & StateProps> = ({
             {renderStarGiftsDescription()}
             <StarGiftCategoryList
               ref={categoryListRef}
-              areUniqueStarGiftsDisallowed={areUniqueStarGiftsDisallowed}
-              areLimitedStarGiftsDisallowed={areLimitedStarGiftsDisallowed}
+              areUniqueStarGiftsDisallowed={isCurrentUserBot || areUniqueStarGiftsDisallowed}
+              areLimitedStarGiftsDisallowed={isCurrentUserBot || areLimitedStarGiftsDisallowed}
               isSelf={isSelf}
-              hasMyUnique={Boolean(myUniqueGiftIds?.length)}
+              hasMyUnique={!isCurrentUserBot && Boolean(myUniqueGiftIds?.length)}
               isPinned={isCategoryListPinned}
               onCategoryChanged={onCategoryChanged}
             />
@@ -630,7 +665,7 @@ const GiftModal: FC<OwnProps & StateProps> = ({
         {isGiftScreen && renderingModal?.forPeerId && (
           <GiftComposer
             gift={selectedGift}
-            giftByStars={giftsByStars.get(selectedGift)}
+            giftByStars={selectedGiftByStars}
             peerId={renderingModal.forPeerId}
           />
         )}
@@ -675,6 +710,7 @@ export default memo(withGlobal<OwnProps>((global, { modal }): Complete<StateProp
     starBalance: stars?.balance,
     peer,
     currentUserId,
+    isCurrentUserBot: selectIsCurrentUserBot(global),
     disallowedGifts: userFullInfo?.disallowedGifts,
     resaleGiftsCount,
     areResaleGiftsLoading,
@@ -688,4 +724,14 @@ function getCategoryKey(category: StarGiftCategory) {
   if (category === 'all') return 0;
   if (category === 'myUnique') return 1;
   return 2;
+}
+
+function buildFilteredPremiumGifts(gifts: ApiPremiumGiftCodeOption[]) {
+  const singleUserGifts = gifts.filter((gift) => gift.users === 1);
+  const regularGifts = singleUserGifts.filter((gift) => gift.currency !== STARS_CURRENCY_CODE);
+  const giftsToRender = regularGifts.length
+    ? regularGifts
+    : singleUserGifts.filter((gift) => gift.currency === STARS_CURRENCY_CODE);
+
+  return giftsToRender.sort((prevGift, gift) => prevGift.months - gift.months);
 }

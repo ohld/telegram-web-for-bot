@@ -6,6 +6,7 @@ import type { ApiUser } from './users';
 
 export interface ApiStarGiftRegular {
   type: 'starGift';
+  isBotApiGift?: true;
   isLimited?: true;
   id: string;
   sticker: ApiSticker;

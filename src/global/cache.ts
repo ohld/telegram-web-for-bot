@@ -34,6 +34,7 @@ import { encryptSession } from '../util/passcode';
 import { onBeforeUnload, throttle } from '../util/schedulers';
 import { hasStoredSession } from '../util/sessions';
 import { selectThreadInfo } from './selectors/threads';
+import { isCurrentUserBot } from './helpers';
 import { addActionHandler, getGlobal } from './index';
 import { INITIAL_GLOBAL_STATE, INITIAL_PERFORMANCE_STATE_MED } from './initialState';
 import { clearGlobalForLockScreen, clearSharedStateForLockScreen } from './reducers';
@@ -51,6 +52,7 @@ import {
 import { getIsMobile } from '../hooks/useAppLayout';
 
 const UPDATE_THROTTLE = 5000;
+const BOT_GLOBAL_STATE_CACHE_MESSAGE_LIMIT = 200;
 
 const updateCacheThrottled = throttle(() => onFullyIdle(() => updateCache()), UPDATE_THROTTLE, false);
 const updateCacheForced = () => updateCache(true);
@@ -214,6 +216,11 @@ function unsafeMigrateCache(cached: GlobalState, initialState: GlobalState) {
   cached.chatFolders = {
     ...initialState.chatFolders,
     ...cached.chatFolders,
+  };
+
+  cached.stickers = {
+    ...initialState.stickers,
+    ...cached.stickers,
   };
 
   if (!cached.chats.similarChannelsById) {
@@ -464,6 +471,7 @@ function reduceGlobal<T extends GlobalState>(global: T) {
     lastIsChatInfoShown: !getIsMobile() ? global.lastIsChatInfoShown : undefined,
     stickers: reduceStickers(global),
     customEmojis: reduceCustomEmojis(global),
+    gifs: reduceGifs(global),
     users: reduceUsers(global),
     chats: reduceChats(global),
     messages: reduceMessages(global),
@@ -507,11 +515,37 @@ export function serializeGlobal<T extends GlobalState>(global: T) {
 }
 
 function reduceStickers<T extends GlobalState>(global: T): GlobalState['stickers'] {
-  const { diceSetIdByEmoji, setsById } = global.stickers;
+  const { diceSetIdByEmoji, observed, setsById } = global.stickers;
+  const observedSetIds = observed.setIds || [];
+  const setIdsToSave = unique([...Object.values(diceSetIdByEmoji || {}), ...observedSetIds]);
+
   return {
     ...INITIAL_GLOBAL_STATE.stickers,
     diceSetIdByEmoji,
-    setsById: pickTruthy(setsById, Object.values(diceSetIdByEmoji || {})),
+    observed: {
+      setIds: observedSetIds.length ? observedSetIds : undefined,
+    },
+    setsById: pickTruthy(setsById, setIdsToSave),
+  };
+}
+
+function reduceGifs<T extends GlobalState>(global: T): GlobalState['gifs'] {
+  if (!isCurrentUserBot(global)) {
+    return INITIAL_GLOBAL_STATE.gifs;
+  }
+
+  const savedGifs = global.gifs.saved.gifs?.map((gif) => ({
+    ...gif,
+    blobUrl: undefined,
+    previewBlobUrl: undefined,
+  }));
+
+  return {
+    ...INITIAL_GLOBAL_STATE.gifs,
+    saved: {
+      ...INITIAL_GLOBAL_STATE.gifs.saved,
+      gifs: savedGifs,
+    },
   };
 }
 
@@ -674,6 +708,7 @@ function getTopPeerIds<T extends GlobalState>(global: T) {
 
 function reduceMessages<T extends GlobalState>(global: T): GlobalState['messages'] {
   const { currentUserId } = global;
+  const shouldCacheBotMessages = isCurrentUserBot(global);
   const byChatId: GlobalState['messages']['byChatId'] = {};
   const currentChatIds = compact(
     Object.values(global.byTabId)
@@ -732,7 +767,10 @@ function reduceMessages<T extends GlobalState>(global: T): GlobalState['messages
       ? Object.values(global.chats.lastMessageIds.saved) : [];
     const lastMessageIdsToSave = [chatLastMessageId].concat(topicLastMessageIds).concat(savedLastMessageIds)
       .filter(Boolean);
-    const byId = pick(current.byId, viewportIdsToSave.concat(lastMessageIdsToSave));
+    const botMessageIdsToSave = shouldCacheBotMessages
+      ? Object.keys(current.byId).map(Number).sort((a, b) => a - b).slice(-BOT_GLOBAL_STATE_CACHE_MESSAGE_LIMIT)
+      : [];
+    const byId = pick(current.byId, unique(viewportIdsToSave.concat(lastMessageIdsToSave, botMessageIdsToSave)));
     const threadsById = Object.keys(threadsToSave).reduce((acc, key) => {
       const thread = threadsToSave[Number(key)];
       acc[Number(key)] = {
