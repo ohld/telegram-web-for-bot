@@ -30,7 +30,6 @@ import { MAIN_THREAD_ID } from '../../../api/types';
 import { PREVIEW_AVATAR_COUNT } from '../../../config';
 import {
   areReactionsEmpty,
-  getCanPostInChat,
   getIsDownloading,
   getMessageVideo,
   getUserFullName,
@@ -40,7 +39,6 @@ import {
   isChatGroup,
   isMessageLocal,
   isOwnMessage,
-  isUserRightBanned,
 } from '../../../global/helpers';
 import {
   selectActiveDownloads,
@@ -49,6 +47,7 @@ import {
   selectCanForwardMessage,
   selectCanGift,
   selectCanPlayAnimatedEmojis,
+  selectCanReplyInChat,
   selectCanScheduleUntilOnline,
   selectCanTranslateMessage,
   selectChat,
@@ -67,14 +66,13 @@ import {
   selectRequestedChatTranslationTone,
   selectRequestedMessageTranslationLanguage,
   selectStickerSet,
-  selectTopic,
   selectUser,
   selectUserFullInfo,
   selectUserStatus,
   selectWebPageFromMessage,
 } from '../../../global/selectors';
 import { selectMessageDownloadableMedia } from '../../../global/selectors/media';
-import { selectSavedDialogIdFromMessage, selectThreadInfo } from '../../../global/selectors/threads';
+import { selectSavedDialogIdFromMessage } from '../../../global/selectors/threads';
 import buildClassName from '../../../util/buildClassName';
 import { copyTextToClipboard } from '../../../util/clipboard';
 import { isUserId } from '../../../util/entities/ids';
@@ -444,7 +442,11 @@ const ContextMenuContainer: FC<OwnProps & StateProps> = ({
       ? getSelectionAsFormattedText(selectionRange) : undefined;
     if (!canReplyInChat) {
       openReplyMenu({
-        fromChatId: message.chatId, messageId: message.id, quoteText, quoteOffset: selectionQuoteOffset,
+        fromChatId: message.chatId,
+        messageId: message.id,
+        quoteText,
+        quoteOffset: selectionQuoteOffset,
+        toThreadId: threadId,
       });
     } else {
       updateDraftReplyInfo({
@@ -888,14 +890,7 @@ export default memo(withGlobal<OwnProps>(
     const isScheduled = messageListType === 'scheduled';
     const isChannel = chat && isChatChannel(chat);
 
-    const threadInfo = threadId && selectThreadInfo(global, message.chatId, threadId);
-    const isMessageThread = Boolean(threadInfo && !threadInfo?.isCommentsInfo && threadInfo?.fromChannelId);
-    const topic = threadId ? selectTopic(global, message.chatId, threadId) : undefined;
-
-    const canSendText = chat && !isUserRightBanned(chat, 'sendPlain', chatFullInfo);
-
-    const canReplyInChat = chat && threadId ? getCanPostInChat(chat, topic, isMessageThread, chatFullInfo)
-      && canSendText : false;
+    const canReplyInChat = chat && threadId ? selectCanReplyInChat(global, message.chatId, threadId) : false;
 
     const isLocal = isMessageLocal(message);
     const hasTtl = hasMessageTtl(message);

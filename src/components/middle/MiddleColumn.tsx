@@ -33,6 +33,7 @@ import {
   selectActionMessageBg,
   selectBot,
   selectCanAnimateInterface, selectCanAnimateRightColumn,
+  selectCanReplyInChat,
   selectChat,
   selectChatFullInfo,
   selectCurrentMessageList,
@@ -803,6 +804,7 @@ export default memo(withGlobal<OwnProps>(
     const isMessageThread = Boolean(!threadInfo?.isCommentsInfo && threadInfo?.fromChannelId);
     const topic = selectTopic(global, chatId, threadId);
     const canPost = chat && getCanPostInChat(chat, topic, isMessageThread, chatFullInfo);
+    const canReplyInChat = chat && selectCanReplyInChat(global, chatId, threadId);
     const isBotNotStarted = selectIsChatBotNotStarted(global, chatId);
     const isPinnedMessageList = messageListType === 'pinned';
     const isMainThread = messageListType === 'thread' && threadId === MAIN_THREAD_ID;
@@ -861,7 +863,7 @@ export default memo(withGlobal<OwnProps>(
       isComments: isMessageThread,
       canPost:
         !isPinnedMessageList
-        && (!chat || canPost)
+        && (!chat || canPost || (draftReplyInfo && canReplyInChat))
         && !isBotNotStarted
         && !(shouldJoinToSend && chat?.isNotJoined)
         && !shouldBlockSendInForum

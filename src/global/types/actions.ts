@@ -2038,6 +2038,7 @@ export interface ActionPayloads {
     messageId?: number;
     quoteText?: ApiFormattedText;
     quoteOffset?: number;
+    toThreadId?: ThreadId;
   } & WithTabId;
 
   // Forwards

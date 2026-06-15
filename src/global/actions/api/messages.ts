@@ -2953,12 +2953,15 @@ addActionHandler('openChatOrTopicWithReplyInDraft', (global, actions, payload): 
     replyToPeerId,
     type: 'message',
   };
+  const shouldClearSourceDraft = currentChatId !== toChatId || currentThreadId !== threadId;
 
   moveReplyToNewDraft(global, threadId, newReply, toChatId);
   actions.openThread({ chatId: toChatId, threadId, tabId });
   actions.closeMediaViewer({ tabId });
   actions.exitMessageSelectMode({ tabId });
-  actions.clearDraft({ chatId: currentChatId, threadId: currentThreadId });
+  if (shouldClearSourceDraft) {
+    actions.clearDraft({ chatId: currentChatId, threadId: currentThreadId });
+  }
 });
 
 addActionHandler('setForwardChatOrTopic', async (global, actions, payload): Promise<void> => {

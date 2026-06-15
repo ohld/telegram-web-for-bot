@@ -475,6 +475,22 @@ export function selectCanDeleteTopic<T extends GlobalState>(global: T, chatId: s
       && selectCanDeleteOwnerTopic(global, chat.id, topicId));
 }
 
+export function selectCanReplyInChat<T extends GlobalState>(global: T, chatId: string, threadId: ThreadId) {
+  const chat = selectChat(global, chatId);
+  if (!chat) return false;
+
+  const threadInfo = selectThreadInfo(global, chatId, threadId);
+  const isMessageThread = Boolean(!threadInfo?.isCommentsInfo && threadInfo?.fromChannelId);
+  const chatFullInfo = selectChatFullInfo(global, chat.id);
+  const topic = selectTopic(global, chat.id, threadId);
+  const user = selectUser(global, chat.id);
+  const canManageBotForumTopics = Boolean(chat.isBotForum && user?.canManageBotForumTopics);
+  const canPostInChat = canManageBotForumTopics || getCanPostInChat(chat, topic, isMessageThread, chatFullInfo);
+  const canSendText = !isUserRightBanned(chat, 'sendPlain', chatFullInfo);
+
+  return canPostInChat && (canManageBotForumTopics || canSendText);
+}
+
 export function selectCanReplyToMessage<T extends GlobalState>(global: T, message: ApiMessage, threadId: ThreadId) {
   const chat = selectChat(global, message.chatId);
   const isRestricted = selectIsChatRestricted(global, message.chatId);
@@ -485,15 +501,10 @@ export function selectCanReplyToMessage<T extends GlobalState>(global: T, messag
 
   if (isLocal || isServiceNotification) return false;
 
-  const threadInfo = selectThreadInfo(global, message.chatId, threadId);
-  const isMessageThread = Boolean(!threadInfo?.isCommentsInfo && threadInfo?.fromChannelId);
-  const chatFullInfo = selectChatFullInfo(global, chat.id);
-  const topic = selectTopic(global, chat.id, threadId);
+  if (!selectCanReplyInChat(global, message.chatId, threadId)) return false;
+
   const user = selectUser(global, chat.id);
   const canManageBotForumTopics = Boolean(chat.isBotForum && user?.canManageBotForumTopics);
-  const canPostInChat = canManageBotForumTopics || getCanPostInChat(chat, topic, isMessageThread, chatFullInfo);
-  if (!canPostInChat) return false;
-
   const messageTopic = selectTopicFromMessage(global, message);
   return !messageTopic || !messageTopic.isClosed || messageTopic.isOwner || getHasAdminRight(chat, 'manageTopics')
     || canManageBotForumTopics;

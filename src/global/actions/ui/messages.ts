@@ -537,7 +537,7 @@ addActionHandler('setShouldPreventComposerAnimation', (global, actions, payload)
 
 addActionHandler('openReplyMenu', (global, actions, payload): ActionReturnType => {
   const {
-    fromChatId, messageId, quoteText, quoteOffset, tabId = getCurrentTabId(),
+    fromChatId, messageId, quoteText, quoteOffset, toThreadId, tabId = getCurrentTabId(),
   } = payload;
   return updateTabState(global, {
     replyingMessage: {
@@ -545,6 +545,7 @@ addActionHandler('openReplyMenu', (global, actions, payload): ActionReturnType =
       messageId,
       quoteText,
       quoteOffset,
+      toThreadId,
     },
     isShareMessageModalShown: true,
   }, tabId);
