@@ -26,6 +26,7 @@ const {
   APP_MOCKED_CLIENT = '',
   HTTPS_CERT_PATH = '',
   HTTPS_KEY_PATH = '',
+  SOURCE_COMMIT = '',
 } = process.env;
 
 const DEFAULT_APP_TITLE = `Telegram${APP_ENV !== 'production' ? ' Beta' : ''}`;
@@ -293,9 +294,17 @@ export default function createConfig(
 
 function getGitMetadata() {
   const gitRevisionPlugin = new GitRevisionPlugin();
-  const branch = HEAD || gitRevisionPlugin.branch();
-  const commit = gitRevisionPlugin.commithash()?.substring(0, 7);
+  const branch = HEAD || getGitRevision(() => gitRevisionPlugin.branch());
+  const commit = (SOURCE_COMMIT || getGitRevision(() => gitRevisionPlugin.commithash()))?.substring(0, 7);
   return { branch, commit };
+}
+
+function getGitRevision(callback: () => string | null) {
+  try {
+    return callback() || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 class WebpackContextExtension {
