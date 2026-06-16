@@ -26,6 +26,17 @@ import RequestState, { type CallableRequest } from './RequestState';
 const LONGPOLL_MAX_WAIT = 3000;
 const LONGPOLL_MAX_DELAY = 500;
 const LONGPOLL_WAIT_AFTER = 150;
+const RECONNECT_DELAY = 1000;
+const RECONNECT_JITTER = 500;
+
+type ConnectionConstructor = new (params: {
+  ip: string;
+  port: number;
+  dcId: number;
+  loggers: Logger;
+  isPremium?: boolean;
+  isTestServer?: boolean;
+}) => Connection;
 
 interface DefaultOptions {
   logger: Logger;
@@ -1193,15 +1204,19 @@ export default class MTProtoSender {
   reconnect() {
     if (this._userConnected && !this.isReconnecting) {
       this.isReconnecting = true;
-      // TODO Should we set this?
-      // this._user_connected = false
-      // we want to wait a second between each reconnect try to not flood the server with reconnects
-      // in case of internal server issues.
-      sleep(1000)
-        .then(() => {
+      const reconnectDelay = this.getReconnectDelay();
+
+      void sleep(reconnectDelay)
+        .then(async () => {
           this.logWithIndex.log('Reconnecting...');
           this._log.info('Started reconnecting');
-          this._reconnect();
+          await this._reconnect();
+        })
+        .catch((err: unknown) => {
+          const error = err instanceof Error ? err : new Error(String(err));
+          this._log.warn(`Reconnect failed: ${error.message}`);
+          this.isReconnecting = false;
+          this.reconnect();
         });
     }
   }
@@ -1221,32 +1236,38 @@ export default class MTProtoSender {
     this._sendQueue.append(undefined);
     this._state.reset();
 
-    // For some reason reusing existing connection caused stuck requests
-    // @ts-expect-error -- Hacky way to create new class instance
-    const newConnection = new currentConnection.constructor({
-      ip: currentConnection._ip,
-      port: currentConnection._port,
-      dcId: currentConnection._dcId,
-      loggers: currentConnection._log,
-      isTestServer: currentConnection._isTestServer,
-      isPremium: currentConnection._isPremium,
-    });
-    // @ts-expect-error -- Hacky way to create new class instance
-    const newFallbackConnection = new this._fallbackConnection.constructor({
-      ip: currentConnection._ip,
-      port: currentConnection._port,
-      dcId: currentConnection._dcId,
-      loggers: currentConnection._log,
-      isTestServer: currentConnection._isTestServer,
-      isPremium: currentConnection._isPremium,
-    });
+    const newConnection = this.cloneConnection(currentConnection);
+    const newFallbackConnection = currentFallbackConnection
+      ? this.cloneConnection(currentFallbackConnection)
+      : undefined;
+
     await this.connect(newConnection, true, newFallbackConnection);
 
     this.isReconnecting = false;
 
-    if (this._autoReconnectCallback) {
-      await this._autoReconnectCallback();
+    try {
+      await this._autoReconnectCallback?.();
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this._log.warn(`Reconnect callback failed: ${error.message}`);
     }
+  }
+
+  private getReconnectDelay() {
+    return RECONNECT_DELAY + Math.floor(Math.random() * RECONNECT_JITTER);
+  }
+
+  private cloneConnection(connection: Connection) {
+    const Constructor = connection.constructor as ConnectionConstructor;
+
+    return new Constructor({
+      ip: connection._ip,
+      port: connection._port,
+      dcId: connection._dcId,
+      loggers: connection._log,
+      isTestServer: connection._isTestServer,
+      isPremium: connection._isPremium,
+    });
   }
 
   private retryPendingStates() {
