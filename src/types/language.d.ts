@@ -160,6 +160,7 @@ export interface LangPair {
   'BotTokenAuthOpenSource': undefined;
   'BotTokenPlaceholder': undefined;
   'BotTokenLogin': undefined;
+  'BotPhoneLookupUnsupported': undefined;
   'LoginQRLogin': undefined;
   'LoginQRTitle': undefined;
   'LoginQRHelp1': undefined;

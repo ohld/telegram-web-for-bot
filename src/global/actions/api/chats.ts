@@ -1,7 +1,7 @@
 import type {
   ApiChat, ApiChatFolder, ApiChatlistExportedInvite,
   ApiChatMember, ApiError, ApiMissingInvitedUser,
-  ApiTopic,
+  ApiTopic, ApiUser,
   LinkContext,
 } from '../../../api/types';
 import type { RequiredGlobalActions } from '../../index';
@@ -98,6 +98,7 @@ import {
   updateTopicsInfo,
   updateTopicWithState,
   updateUser,
+  updateUserFullInfo,
   updateUsers,
 } from '../../reducers';
 import { updateGroupCall } from '../../reducers/calls';
@@ -1713,6 +1714,14 @@ addActionHandler('openChatByPhoneNumber', async (global, actions, payload): Prom
   const {
     phoneNumber, startAttach, attach, text, tabId = getCurrentTabId(),
   } = payload;
+
+  if (isCurrentUserBot(global)) {
+    actions.showNotification({
+      message: langProvider.oldTranslate('BotPhoneLookupUnsupported'),
+      tabId,
+    });
+    return;
+  }
 
   // Open temporary empty chat to make the click response feel faster
   actions.openChat({ id: TMP_CHAT_ID, tabId });
@@ -3701,10 +3710,11 @@ export async function fetchChatByUsername<T extends GlobalState>(
   global: T,
   username: string,
   referrer?: string,
+  options?: { shouldLoadFullUser?: boolean },
 ) {
   global = getGlobal();
   const localChat = !referrer ? selectChatByUsername(global, username) : undefined;
-  if (localChat && !localChat.isMin) {
+  if (localChat && !localChat.isMin && !options?.shouldLoadFullUser) {
     return localChat;
   }
 
@@ -3721,7 +3731,29 @@ export async function fetchChatByUsername<T extends GlobalState>(
 
   setGlobal(global);
 
+  if (options?.shouldLoadFullUser && user) {
+    await loadResolvedUserFullInfo(user);
+  }
+
   return chat;
+}
+
+async function loadResolvedUserFullInfo(user: ApiUser) {
+  const result = await callApi('fetchFullUser', {
+    id: user.id,
+    accessHash: user.accessHash,
+  });
+  if (!result?.user) {
+    return;
+  }
+
+  let global = getGlobal();
+  global = updateUser(global, result.user.id, result.user);
+  global = updateUserFullInfo(global, result.user.id, result.fullInfo);
+  global = updateUsers(global, buildCollectionByKey(result.users, 'id'));
+  global = updateChats(global, buildCollectionByKey(result.chats, 'id'));
+  global = addUserStatuses(global, result.userStatusesById);
+  setGlobal(global);
 }
 
 export async function checkWebAppExists<T extends GlobalState>(
@@ -3741,6 +3773,10 @@ export async function checkWebAppExists<T extends GlobalState>(
 
 export async function fetchChatByPhoneNumber<T extends GlobalState>(global: T, phoneNumber: string) {
   global = getGlobal();
+  if (isCurrentUserBot(global)) {
+    return undefined;
+  }
+
   const localUser = selectUserByPhoneNumber(global, phoneNumber);
   if (localUser && !localUser.isMin) {
     return selectChat(global, localUser.id);

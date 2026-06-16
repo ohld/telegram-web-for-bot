@@ -66,6 +66,7 @@ import {
   getIsSavedDialog,
   getUserFullName,
   groupMessageIdsByThreadId,
+  hasMessageText,
   isChatChannel,
   isChatSuperGroup,
   isCurrentUserBot,
@@ -84,6 +85,7 @@ import {
 } from '../../index';
 import {
   addChatMessagesById,
+  addUserStatuses,
   clearMessageSummary,
   deleteSponsoredMessage,
   removeOutlyingList,
@@ -97,6 +99,7 @@ import {
   updateChat,
   updateChatFullInfo,
   updateChatMessage,
+  updateChats,
   updateGlobalSearch,
   updateListedIds,
   updateMessageSummary,
@@ -112,6 +115,7 @@ import {
   updateUnreadCounters,
   updateUploadByMessageKey,
   updateUserFullInfo,
+  updateUsers,
 } from '../../reducers';
 import { updateTabState } from '../../reducers/tabs';
 import {
@@ -187,6 +191,7 @@ const BOT_KNOWN_HISTORY_MAX_PAGE_REQUESTS = 5;
 const BOT_KNOWN_HISTORY_TARGET_SIZE = MESSAGE_LIST_SLICE / 2;
 const botKnownHistoryRequestKeys = new Set<string>();
 const botKnownHistoryEmptyPageKeys = new Set<string>();
+const botViewportRepairAttemptKeys = new Set<string>();
 const messageRequestKeys = new Set<string>();
 
 addActionHandler('loadViewportMessages', (global, actions, payload): ActionReturnType => {
@@ -226,6 +231,16 @@ addActionHandler('loadViewportMessages', (global, actions, payload): ActionRetur
   if (isCurrentUserBot(global)) {
     const result = updateBotLocalViewport(global, chatId, threadId, direction, tabId);
     global = result.global;
+
+    const { viewportIds: botViewportIds } = result;
+    if (botViewportIds?.length && botViewportIds.some((id) => {
+      const message = selectChatMessage(global, chatId, id);
+      return message && isBotViewportMessageRepairNeeded(message);
+    })) {
+      onTickEnd(() => {
+        void repairBotMessages(chat, threadId, botViewportIds, tabId);
+      });
+    }
 
     if (!isBudgetPreload && shouldLoadBotKnownHistory(threadId, result)) {
       onTickEnd(() => {
@@ -349,6 +364,7 @@ function updateBotLocalViewport<T extends GlobalState>(
     historyIds,
     offsetId,
     areAllLocal,
+    viewportIds: newViewportIds,
   };
 }
 
@@ -420,6 +436,69 @@ async function loadBotKnownHistoryViewportMessages(
 
   setGlobal(global);
   onLoaded?.();
+}
+
+async function repairBotMessages(
+  chat: ApiChat,
+  threadId: ThreadId,
+  candidateIds: number[],
+  tabId?: number,
+) {
+  const chatId = chat.id;
+  let global = getGlobal();
+  const messageIds = candidateIds.filter((id) => {
+    if (isLocalMessageId(id)) {
+      return false;
+    }
+
+    const message = selectChatMessage(global, chatId, id);
+    if (!message || !isBotViewportMessageRepairNeeded(message)) {
+      return false;
+    }
+
+    const requestKey = getMessageRequestKey(chatId, id);
+    return !messageRequestKeys.has(requestKey) && !botViewportRepairAttemptKeys.has(requestKey);
+  });
+
+  if (!messageIds.length) {
+    return;
+  }
+
+  const requestKeys = messageIds.map((id) => getMessageRequestKey(chatId, id));
+  requestKeys.forEach((requestKey) => {
+    messageRequestKeys.add(requestKey);
+    botViewportRepairAttemptKeys.add(requestKey);
+  });
+  const result = await callApi('fetchMessagesByIdWithPeers', {
+    chat,
+    messageIds,
+  }).catch(() => undefined);
+  requestKeys.forEach((requestKey) => {
+    messageRequestKeys.delete(requestKey);
+  });
+
+  if (!result?.messages.length) {
+    return;
+  }
+
+  global = getGlobal();
+  const messages = filterBotKnownHistoryMessages(global, chatId, threadId, result.messages);
+  if (!messages.length) {
+    return;
+  }
+
+  global = addChatMessagesById(global, chatId, buildCollectionByKey(messages, 'id'));
+  global = updateUsers(global, buildCollectionByKey(result.users, 'id'));
+  global = updateChats(global, buildCollectionByKey(result.chats, 'id'));
+  global = addUserStatuses(global, result.userStatusesById);
+  if (tabId !== undefined) {
+    global = safeReplaceViewportIds(global, chatId, threadId, candidateIds, tabId);
+  }
+  setGlobal(global);
+}
+
+function isBotViewportMessageRepairNeeded(message: ApiMessage) {
+  return hasMessageText(message) && !message.content.text;
 }
 
 async function fetchBotKnownHistoryMessages(
@@ -644,6 +723,21 @@ addActionHandler('loadMessage', async (global, actions, payload): Promise<void> 
   global = getGlobal();
   global = updateChatMessage(global, chat.id, messageId, result.message);
   setGlobal(global);
+});
+
+addActionHandler('repairBotMessage', async (global, actions, payload): Promise<void> => {
+  const { chatId, messageId, threadId } = payload;
+  if (!isCurrentUserBot(global)) {
+    return;
+  }
+
+  const chat = selectChat(global, chatId);
+  const message = selectChatMessage(global, chatId, messageId);
+  if (!chat || !message || !isBotViewportMessageRepairNeeded(message)) {
+    return;
+  }
+
+  await repairBotMessages(chat, threadId, [messageId]);
 });
 
 function getMessageRequestKey(chatId: string, messageId: number) {

@@ -65,6 +65,7 @@ import {
   isChatChannel,
   isChatGroup,
   isChatPublic,
+  isCurrentUserBot,
   isGeoLiveExpired,
   isMessageLocal,
   isMessageTranslatable,
@@ -328,6 +329,7 @@ type StateProps = {
   senderBoosts?: number;
   tags?: Record<ApiReactionKey, ApiSavedReactionTag>;
   canTranscribeVoice?: boolean;
+  isCurrentUserBot: boolean;
   viaBusinessBot?: ApiUser;
   guestFromSender?: ApiPeer;
   effect?: ApiAvailableEffect;
@@ -479,6 +481,7 @@ const Message = ({
   observeIntersectionForPlaying,
   isQuickPreview,
   onMessageUnmount,
+  isCurrentUserBot: isCurrentBot,
 }: OwnProps & StateProps) => {
   const {
     toggleMessageSelection,
@@ -494,6 +497,7 @@ const Message = ({
     markMentionsRead,
     markPollVotesRead,
     openThread,
+    repairBotMessage,
     summarizeMessage,
   } = getActions();
 
@@ -816,6 +820,14 @@ const Message = ({
   );
 
   const text = textMessage && getMessageContent(textMessage).text;
+  useEffect(() => {
+    if (!isCurrentBot || !hasTextContent || text || isMessageLocal(message)) {
+      return;
+    }
+
+    repairBotMessage({ chatId, messageId, threadId });
+  }, [chatId, hasTextContent, isCurrentBot, message, messageId, repairBotMessage, text, threadId]);
+
   const isInvertedMedia = Boolean(message.isInvertedMedia);
 
   const { replyToMsgId, replyToPeerId } = messageReplyInfo || {};
@@ -2352,6 +2364,7 @@ export default memo(withGlobal<OwnProps>(
       senderBoosts,
       tags: global.savedReactionTags?.byKey,
       canTranscribeVoice,
+      isCurrentUserBot: isCurrentUserBot(global),
       viaBusinessBot,
       minFutureTime,
       effect,

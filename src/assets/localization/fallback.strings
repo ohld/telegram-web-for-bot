@@ -193,6 +193,7 @@
 "BotTokenAuthOpenSource" = "Open source";
 "BotTokenPlaceholder" = "Bot token";
 "BotTokenLogin" = "Log in as bot";
+"BotPhoneLookupUnsupported" = "Phone number links are not available for bot accounts.";
 "LoginQRLogin" = "Log in by QR Code";
 "LoginQRTitle" = "Log in to Telegram by QR Code";
 "LoginQRHelp1" = "Open Telegram on your phone";

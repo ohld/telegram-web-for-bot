@@ -6,6 +6,8 @@ let showError = true;
 let error: Error | undefined;
 
 const RESOURCE_ERROR_TAGS = new Set(['IMG', 'VIDEO', 'AUDIO', 'SOURCE', 'LINK', 'SCRIPT']);
+const VIEW_TRANSITION_ABORT_MESSAGE = 'Transition was aborted';
+const VIEW_TRANSITION_ABORT_ERROR_NAME = 'InvalidStateError';
 
 window.addEventListener('error', handleErrorEvent);
 window.addEventListener('unhandledrejection', handleErrorEvent);
@@ -50,6 +52,12 @@ function handleErrorEvent(e: ErrorEvent | PromiseRejectionEvent) {
     return;
   }
 
+  const err = e instanceof ErrorEvent ? (e.error || e.message) : e.reason;
+  if (isExpectedViewTransitionAbort(err)) {
+    e.preventDefault();
+    return;
+  }
+
   if (e instanceof ErrorEvent) {
     // https://stackoverflow.com/questions/49384120/resizeobserver-loop-limit-exceeded
     if (e.message === 'ResizeObserver loop limit exceeded') {
@@ -63,7 +71,7 @@ function handleErrorEvent(e: ErrorEvent | PromiseRejectionEvent) {
   }
 
   e.preventDefault();
-  handleError(e instanceof ErrorEvent ? (e.error || e.message) : e.reason);
+  handleError(err);
 }
 
 function isResourceError(e: Event | PromiseRejectionEvent) {
@@ -72,6 +80,15 @@ function isResourceError(e: Event | PromiseRejectionEvent) {
     : e.target;
 
   return target instanceof Element && RESOURCE_ERROR_TAGS.has(target.tagName);
+}
+
+function isExpectedViewTransitionAbort(err: unknown) {
+  if (err instanceof DOMException || err instanceof Error) {
+    return err.name === VIEW_TRANSITION_ABORT_ERROR_NAME
+      && err.message.includes(VIEW_TRANSITION_ABORT_MESSAGE);
+  }
+
+  return typeof err === 'string' && err.includes(VIEW_TRANSITION_ABORT_MESSAGE);
 }
 
 function getErrorMessage(err: Error) {

@@ -149,7 +149,7 @@ export async function fetchAvailableEffects() {
   return { effects, emojis, stickers };
 }
 
-export function sendReaction({
+export async function sendReaction({
   chat, messageId, reactions, shouldAddToRecent,
 }: {
   chat: ApiChat;
@@ -159,24 +159,45 @@ export function sendReaction({
 }) {
   const isBotSession = isBotApiSession();
   if (isBotSession) {
-    return sendBotApiReaction({
-      chatId: chat.id,
-      messageId,
-      reactions,
-    }).then((result) => {
+    try {
+      return await sendMtpReaction({ chat, messageId, reactions });
+    } catch (err) {
+      const result = await sendBotApiReaction({
+        chatId: chat.id,
+        messageId,
+        reactions,
+      });
       if (!result?.success) {
-        throw new Error(result?.error || 'setMessageReaction');
+        throw new Error(result?.error || (err instanceof Error ? err.message : 'setMessageReaction'), {
+          cause: err,
+        });
       }
 
       return true;
-    });
+    }
   }
 
+  return sendMtpReaction({
+    chat,
+    messageId,
+    reactions,
+    shouldAddToRecent,
+  });
+}
+
+function sendMtpReaction({
+  chat, messageId, reactions, shouldAddToRecent,
+}: {
+  chat: ApiChat;
+  messageId: number;
+  reactions?: ApiReaction[];
+  shouldAddToRecent?: boolean;
+}) {
   return invokeRequest(new GramJs.messages.SendReaction({
     reaction: reactions?.map((r) => buildInputReaction(r)),
     peer: buildInputPeer(chat.id, chat.accessHash),
     msgId: messageId,
-    addToRecent: !isBotSession && shouldAddToRecent ? true : undefined,
+    addToRecent: shouldAddToRecent ? true : undefined,
   }), {
     shouldReturnTrue: true,
     shouldThrow: true,

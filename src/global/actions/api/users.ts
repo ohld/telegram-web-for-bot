@@ -4,12 +4,13 @@ import { ManagementProgress } from '../../../types';
 
 import { BOT_VERIFICATION_PEERS_LIMIT } from '../../../config';
 import { isUserId } from '../../../util/entities/ids';
+import { getUsernameFromSearchQuery } from '../../../util/entities/username';
 import { getCurrentTabId } from '../../../util/establishMultitabRole';
 import { buildCollectionByKey, unique } from '../../../util/iteratees';
 import * as langProvider from '../../../util/oldLangProvider';
 import { throttle } from '../../../util/schedulers';
 import { callApi } from '../../../api/gramjs';
-import { isUserBot } from '../../helpers';
+import { isCurrentUserBot, isUserBot } from '../../helpers';
 import { addActionHandler, getGlobal, setGlobal } from '../../index';
 import {
   addUserStatuses,
@@ -40,6 +41,7 @@ import {
   selectUserCommonChats,
   selectUserFullInfo,
 } from '../../selectors';
+import { fetchChatByUsername } from './chats';
 
 const PROFILE_PHOTOS_FIRST_LOAD_LIMIT = 10;
 const runThrottledForSearch = throttle((cb) => cb(), 500, false);
@@ -382,23 +384,34 @@ addActionHandler('setUserSearchQuery', (global, actions, payload): ActionReturnT
   if (!query) return;
 
   void runThrottledForSearch(async () => {
-    const result = await callApi('searchChats', { query });
+    global = getGlobal();
+    const isBotSearch = isCurrentUserBot(global);
+    const username = isBotSearch ? getUsernameFromSearchQuery(query) : undefined;
+    const result = isBotSearch ? undefined : await callApi('searchChats', { query });
+    global = getGlobal();
+    const resolvedChat = username
+      ? await fetchChatByUsername(global, username, undefined, { shouldLoadFullUser: true })
+      : undefined;
 
     global = getGlobal();
     const currentSearchQuery = selectTabState(global, tabId).userSearch.query;
 
-    if (!result || !currentSearchQuery || (query !== currentSearchQuery)) {
+    if ((!result && !isBotSearch && !resolvedChat) || !currentSearchQuery || (query !== currentSearchQuery)) {
       global = updateUserSearchFetchingStatus(global, false, tabId);
       setGlobal(global);
       return;
     }
 
     const {
-      accountResultIds, globalResultIds,
-    } = result;
+      accountResultIds = [], globalResultIds = [],
+    } = result || {};
 
     const localUserIds = accountResultIds.filter(isUserId);
-    const globalUserIds = globalResultIds.filter(isUserId);
+    const resolvedUserId = resolvedChat && isUserId(resolvedChat.id) ? resolvedChat.id : undefined;
+    const globalUserIds = unique([
+      ...globalResultIds.filter(isUserId),
+      ...(resolvedUserId && !localUserIds.includes(resolvedUserId) ? [resolvedUserId] : []),
+    ]);
 
     global = updateUserSearchFetchingStatus(global, false, tabId);
     global = updateUserSearch(global, { localUserIds, globalUserIds }, tabId);

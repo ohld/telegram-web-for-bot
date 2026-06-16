@@ -9,12 +9,15 @@ import { GLOBAL_SEARCH_SLICE, GLOBAL_TOPIC_SEARCH_SLICE } from '../../../config'
 import { timestampPlusDay } from '../../../util/dates/oldDateFormat';
 import { isDeepLink, tryParseDeepLink } from '../../../util/deepLinkParser';
 import { toChannelId } from '../../../util/entities/ids';
+import { getUsernameFromSearchQuery } from '../../../util/entities/username';
 import { getCurrentTabId } from '../../../util/establishMultitabRole';
+import { unique } from '../../../util/iteratees';
 import { getTranslationFn } from '../../../util/localization';
 import { formatStarsAsText } from '../../../util/localization/format';
 import { throttle } from '../../../util/schedulers';
 import { callApi } from '../../../api/gramjs';
 import { addActionHandler, getActions, getGlobal, setGlobal } from '../..';
+import { isCurrentUserBot } from '../../helpers';
 import { isChatChannel, isChatGroup } from '../../helpers/chats';
 import { isApiPeerChat } from '../../helpers/peers';
 import {
@@ -28,6 +31,7 @@ import {
 import {
   selectChat, selectChatByUsername, selectChatMessage, selectCurrentGlobalSearchQuery, selectPeer, selectTabState,
 } from '../../selectors';
+import { fetchChatByUsername } from './chats';
 
 const searchThrottled = throttle((cb) => cb(), 500, false);
 
@@ -37,22 +41,34 @@ addActionHandler('setGlobalSearchQuery', (global, actions, payload): ActionRetur
 
   if (query && !chatId) {
     void searchThrottled(async () => {
+      global = getGlobal();
+      const isBotSearch = isCurrentUserBot(global);
+      const username = isBotSearch ? getUsernameFromSearchQuery(query) : undefined;
       const [searchResult, sponsoredResult] = await Promise.all([
-        callApi('searchChats', { query }),
-        callApi('fetchSponsoredPeer', { query }),
+        isBotSearch ? undefined : callApi('searchChats', { query }),
+        isBotSearch ? undefined : callApi('fetchSponsoredPeer', { query }),
       ]);
+      global = getGlobal();
+      const resolvedChat = username
+        ? await fetchChatByUsername(global, username, undefined, { shouldLoadFullUser: true })
+        : undefined;
 
       global = getGlobal();
       const currentSearchQuery = selectCurrentGlobalSearchQuery(global, tabId);
-      if (!searchResult || !currentSearchQuery || (query !== currentSearchQuery)) {
+      if ((!searchResult && !isBotSearch && !resolvedChat) || !currentSearchQuery || (query !== currentSearchQuery)) {
         global = updateGlobalSearchFetchingStatus(global, { chats: false }, tabId);
         setGlobal(global);
         return;
       }
 
       const {
-        accountResultIds, globalResultIds,
-      } = searchResult;
+        accountResultIds = [], globalResultIds = [],
+      } = searchResult || {};
+      const resolvedPeerId = resolvedChat?.id;
+      const mergedGlobalResultIds = unique([
+        ...globalResultIds,
+        ...(resolvedPeerId && !accountResultIds.includes(resolvedPeerId) ? [resolvedPeerId] : []),
+      ]);
 
       global = updateGlobalSearchFetchingStatus(global, { chats: false }, tabId);
       global = updateGlobalSearch(global, {
@@ -61,7 +77,7 @@ addActionHandler('setGlobalSearchQuery', (global, actions, payload): ActionRetur
         },
         globalResults: {
           ...selectTabState(global, tabId).globalSearch.globalResults,
-          peerIds: globalResultIds,
+          peerIds: mergedGlobalResultIds,
         },
         sponsoredPeer: sponsoredResult,
       }, tabId);

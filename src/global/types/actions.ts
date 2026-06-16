@@ -561,6 +561,11 @@ export interface ActionPayloads {
     messageId: number;
     replyOriginForId?: number;
   };
+  repairBotMessage: {
+    chatId: string;
+    messageId: number;
+    threadId: ThreadId;
+  };
   loadMessagesById: {
     chatId: string;
     messageIds: number[];

@@ -31,6 +31,8 @@ type ViewTransitionParameters = {
 };
 
 const SKIP_TIMEOUT = 1000;
+const VIEW_TRANSITION_ABORT_MESSAGE = 'Transition was aborted';
+const VIEW_TRANSITION_SKIPPED_ERROR_NAMES = new Set(['AbortError', 'InvalidStateError']);
 
 let hasActiveTransition = false;
 export function hasActiveViewTransition(): boolean {
@@ -62,14 +64,29 @@ export function useViewTransition(): ViewTransitionController {
       transition.types?.add(type);
     });
 
-    transition.finished.then(() => {
+    let isTransitionSettled = false;
+    const handleTransitionSettle = (nextState: TransitionState, error?: unknown) => {
+      if (isTransitionSettled) return;
+      isTransitionSettled = true;
+
+      if (error && !isExpectedViewTransitionSkip(error)) {
+        // eslint-disable-next-line no-console
+        console.error('View transition error', error, types?.getTypes());
+      }
+
       onHeavyAnimationEnd();
-      setTransitionState('idle');
+      setTransitionState(nextState);
       requestMutation(() => {
         cleanUp(types);
       });
 
       hasActiveTransition = false;
+    };
+
+    transition.finished.then(() => {
+      handleTransitionSettle('idle');
+    }).catch((e: unknown) => {
+      handleTransitionSettle('skipped', e);
     });
 
     let isReady = false;
@@ -78,19 +95,16 @@ export function useViewTransition(): ViewTransitionController {
       isReady = true;
       setTransitionState('animating');
     }).catch((e: unknown) => {
-      // eslint-disable-next-line no-console
-      console.error('View transition error', e, types?.getTypes());
-      setTransitionState('skipped');
-      requestMutation(() => {
-        cleanUp(types);
-      });
-
-      hasActiveTransition = false;
+      handleTransitionSettle('skipped', e);
     });
 
     setTimeout(() => {
       if (!isReady) { // Skip transition if it's not prepared in time
-        transition.skipTransition();
+        try {
+          transition.skipTransition();
+        } catch (err) {
+          handleTransitionSettle('skipped', err);
+        }
       }
     }, SKIP_TIMEOUT);
   }, [transitionState]);
@@ -134,6 +148,11 @@ export function useViewTransition(): ViewTransitionController {
     transitionState,
     startViewTransition,
   };
+}
+
+function isExpectedViewTransitionSkip(error: unknown) {
+  return (error instanceof DOMException && VIEW_TRANSITION_SKIPPED_ERROR_NAMES.has(error.name))
+    || (error instanceof Error && error.message.includes(VIEW_TRANSITION_ABORT_MESSAGE));
 }
 
 function cleanUp(types?: VTTypes) {

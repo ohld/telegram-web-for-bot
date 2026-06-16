@@ -307,6 +307,31 @@ export async function fetchMessage({ chat, messageId }: { chat: ApiChat; message
 }
 
 export async function fetchMessagesById({ chat, messageIds }: { chat: ApiChat; messageIds: number[] }) {
+  const result = await requestMessagesById(chat, messageIds);
+
+  if (!result) {
+    return undefined;
+  }
+
+  return result.messages.map(buildApiMessage).filter(Boolean);
+}
+
+export async function fetchMessagesByIdWithPeers({ chat, messageIds }: { chat: ApiChat; messageIds: number[] }) {
+  const result = await requestMessagesById(chat, messageIds);
+
+  if (!result) {
+    return undefined;
+  }
+
+  return {
+    messages: result.messages.map(buildApiMessage).filter(Boolean),
+    users: result.users.map(buildApiUser).filter(Boolean),
+    chats: result.chats.map((chatFromPreview) => buildApiChatFromPreview(chatFromPreview)).filter(Boolean),
+    userStatusesById: buildApiUserStatuses(result.users),
+  };
+}
+
+async function requestMessagesById(chat: ApiChat, messageIds: number[]) {
   const isChannel = getEntityTypeById(chat.id) === 'channel';
 
   const result = await invokeRequest(
@@ -327,7 +352,7 @@ export async function fetchMessagesById({ chat, messageIds }: { chat: ApiChat; m
     return undefined;
   }
 
-  return result.messages.map(buildApiMessage).filter(Boolean);
+  return result;
 }
 
 let mediaQueue = Promise.resolve();

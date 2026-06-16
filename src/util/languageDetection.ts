@@ -13,6 +13,7 @@ const DEFAULT_THRESHOLD = 0.2;
 const DEFAULT_LABELS_COUNT = 5;
 
 const UNDEFINED_LANGUAGE = 'und';
+const LANGUAGE_DETECTOR_AVAILABLE = 'available';
 
 let worker: Connector<FastTextApi> | undefined;
 let languageDetector: LanguageDetector | undefined;
@@ -26,9 +27,12 @@ async function initLanguageDetection() {
   if (isInitialized()) return;
   if (IS_TRANSLATION_DETECTOR_SUPPORTED) {
     try {
-      languageDetector = await LanguageDetector.create();
-      initializationDeferred.resolve();
-      return;
+      const availability = await LanguageDetector.availability();
+      if (availability === LANGUAGE_DETECTOR_AVAILABLE) {
+        languageDetector = await LanguageDetector.create();
+        initializationDeferred.resolve();
+        return;
+      }
     } catch (error) {
       // eslint-disable-next-line no-console
       if (DEBUG) console.error('Failed to initialize language detector: ', error);

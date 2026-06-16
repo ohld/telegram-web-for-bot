@@ -24,6 +24,28 @@ Obtain API ID and API hash on [my.telegram.org](https://my.telegram.org) and pop
 npm run dev
 ```
 
+Open [http://localhost:1234](http://localhost:1234).
+
+## Testing with a bot token
+
+Use a disposable bot token from [@BotFather](https://t.me/BotFather) when testing locally. Do not commit the token, paste it into issue logs, or share browser console output that contains it.
+
+Manual checklist:
+
+1. Start the dev server with `npm run dev` and open [http://localhost:1234](http://localhost:1234).
+2. Log in with the bot token on the bot-token login screen.
+3. Confirm the app opens the bot account without uncaught browser console errors.
+4. Search for an exact public username, with or without `@`, for example `@username`. Bot sessions should resolve exact usernames through MTProto and open the matching user, bot, group, or channel when Telegram returns one.
+5. Search with a broad text query. Bot sessions do not use Telegram's broad contact search, so only local/cache results and exact username matches are expected.
+6. Open a phone-number link such as `https://t.me/+1234567890` while logged in as a bot. The app should show that phone-number links are unavailable for bot accounts, without a `BOT_METHOD_INVALID` console error.
+
+Agent checklist before claiming a local build is ready:
+
+1. Run the TypeScript check: `npm run check:ts`.
+2. Start the dev server and open [http://localhost:1234](http://localhost:1234) in a browser-controlled session.
+3. Verify that the login screen renders and the browser console has no uncaught startup errors.
+4. Authenticated bot-token checks require a disposable token entered through the local UI. If no token is available to the agent, report that only the unauthenticated boot path was verified.
+
 ### Invoking API from console
 
 Start your dev server and locate GramJS worker in the console context.
