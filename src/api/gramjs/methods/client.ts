@@ -89,7 +89,8 @@ export async function init(initialArgs: ApiInitialArgs, onConnected?: NoneToVoid
 
   const {
     userAgent, platform, sessionData, isWebmSupported, maxBufferSize, dcId,
-    shouldDebugExportedSenders, langCode, isTestServerRequested, botToken,
+    shouldDebugExportedSenders, shouldAllowHttpTransport, shouldForceHttpTransport, langCode,
+    isTestServerRequested, botToken,
   } = initialArgs;
 
   const session = new sessions.CallbackSession(sessionData, onSessionUpdate);
@@ -109,8 +110,8 @@ export async function init(initialArgs: ApiInitialArgs, onConnected?: NoneToVoid
       useWSS: true,
       additionalDcsDisabled: IS_TEST,
       shouldDebugExportedSenders,
-      shouldForceHttpTransport: false,
-      shouldAllowHttpTransport: false,
+      shouldForceHttpTransport: Boolean(shouldForceHttpTransport),
+      shouldAllowHttpTransport: Boolean(shouldAllowHttpTransport || shouldForceHttpTransport),
       shouldPreconnectMediaSender: false,
       floodSleepLimit: 0,
       connectionRetries: BOT_CONNECTION_RETRIES,
