@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from '../../../../lib/teact/teact';
+import { memo, useEffect, useRef, useState } from '../../../../lib/teact/teact';
 import { getActions, withGlobal } from '../../../../global';
 
 import type { ApiStickerSet } from '../../../../api/types';
@@ -45,7 +45,7 @@ const SlotMachine = ({
   onEffectPlayed,
   observeIntersectionForLoading,
 }: OwnProps & StateProps) => {
-  const { requestConfetti, showNotification } = getActions();
+  const { loadDiceStickers, requestConfetti, showNotification } = getActions();
   const { isMobile } = useAppLayout();
 
   const isWin = dice.value === winEffect?.value;
@@ -62,6 +62,12 @@ const SlotMachine = ({
   });
 
   const canLoad = useIsIntersecting(ref, observeIntersectionForLoading);
+
+  useEffect(() => {
+    if (!slotsStickerSet) {
+      loadDiceStickers({ emoji: dice.emoticon });
+    }
+  }, [dice.emoticon, loadDiceStickers, slotsStickerSet]);
 
   const preparedStickers = slotsStickerSet?.stickers && prepareSlotMachine(slotsStickerSet?.stickers, dice.value);
   const backgroundHash = preparedStickers?.background

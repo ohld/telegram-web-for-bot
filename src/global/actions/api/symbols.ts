@@ -40,6 +40,8 @@ const ADDED_SETS_THROTTLE_CHUNK = 10;
 
 const searchThrottled = throttle((cb) => cb(), 500, false);
 
+const loadingDiceStickerEmojis = new Set<string>();
+
 addActionHandler('loadStickerSets', async (global, actions): Promise<void> => {
   const [addedStickers, addedCustomEmojis] = await Promise.all([
     callApi('fetchStickerSets', { hash: global.stickers.added.hash }),
@@ -208,10 +210,25 @@ addActionHandler('loadFeaturedStickers', async (global): Promise<void> => {
   setGlobal(global);
 });
 
-addActionHandler('loadDiceStickers', async (global): Promise<void> => {
-  const emojis = global.appConfig.diceEmojies;
-  const promises = emojis.map((emoji) => callApi('fetchDiceStickers', { emoji }));
-  const results = await Promise.all(promises);
+addActionHandler('loadDiceStickers', async (global, actions, payload): Promise<void> => {
+  const diceEmojies = payload?.emoji ? [payload.emoji] : global.appConfig.diceEmojies;
+  const emojis = diceEmojies.filter((emoji) => {
+    if (loadingDiceStickerEmojis.has(emoji)) return false;
+
+    const setId = global.stickers.diceSetIdByEmoji?.[emoji];
+    const set = setId ? global.stickers.setsById[setId] : undefined;
+    return !set?.stickers?.length;
+  });
+
+  if (!emojis.length) return;
+
+  let results;
+  emojis.forEach((emoji) => loadingDiceStickerEmojis.add(emoji));
+  try {
+    results = await Promise.all(emojis.map((emoji) => callApi('fetchDiceStickers', { emoji })));
+  } finally {
+    emojis.forEach((emoji) => loadingDiceStickerEmojis.delete(emoji));
+  }
 
   global = getGlobal();
   results.forEach((result, index) => {

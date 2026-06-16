@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from '@teact';
+import { memo, useEffect, useRef, useState } from '@teact';
 import { getActions, withGlobal } from '../../../../global';
 
 import type { ApiSticker } from '../../../../api/types';
@@ -40,7 +40,7 @@ const Dice = ({
   observeIntersectionForLoading,
   observeIntersectionForPlaying,
 }: OwnProps & StateProps) => {
-  const { requestConfetti, showNotification } = getActions();
+  const { loadDiceStickers, requestConfetti, showNotification } = getActions();
   const { isMobile } = useAppLayout();
   const { width } = idleSticker ? getStickerDimensions(idleSticker, isMobile) : { width: FALLBACK_SIZE };
 
@@ -50,6 +50,12 @@ const Dice = ({
 
   const idleContainerRef = useRef<HTMLDivElement>();
   const valueContainerRef = useRef<HTMLDivElement>();
+
+  useEffect(() => {
+    if (!idleSticker || !valueSticker) {
+      loadDiceStickers({ emoji: dice.emoticon });
+    }
+  }, [dice.emoticon, idleSticker, loadDiceStickers, valueSticker]);
 
   const onIdleLoop = useLastCallback(() => {
     setIsShowingResult(isValueStickerLoaded);
