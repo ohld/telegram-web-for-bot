@@ -2120,7 +2120,9 @@ export interface ActionPayloads {
   loadRecentStickers: undefined;
   loadFavoriteStickers: undefined;
   loadFeaturedStickers: undefined;
-  loadDiceStickers: undefined;
+  loadDiceStickers: {
+    emoji?: string;
+  } | undefined;
 
   reorderStickerSets: {
     isCustomEmoji?: boolean;
